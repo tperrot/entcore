@@ -823,8 +823,7 @@ public class WorkspaceService extends BaseController {
 								}
 								//Decrement storage
 								decrementStorage(r.right().getValue());
-								renderJson(request, new JsonObject()
-										.putNumber("number", r.right().getValue().size()), 204);
+								noContent(request);
 							} else {
 								badRequest(request, r.left().getValue());
 							}
@@ -1162,7 +1161,7 @@ public class WorkspaceService extends BaseController {
 													decrementStorage(result, new Handler<Either<String, JsonObject>>() {
 														@Override
 														public void handle(Either<String, JsonObject> event) {
-															renderJson(request, result2, 204);
+															noContent(request);
 														}
 													});
 												} else {

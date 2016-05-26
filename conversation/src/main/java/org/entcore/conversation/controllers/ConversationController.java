@@ -442,7 +442,7 @@ public class ConversationController extends BaseController {
 							final AtomicInteger finalCountdown = new AtomicInteger(results.size() / resultsModulo);
 
 							if(finalCountdown.get() <= 0){
-								renderJson(request, new JsonObject(), 204);
+								noContent(request);
 								return;
 							}
 							final Handler<Void> finalCountdownHandler = new Handler<Void>() {
@@ -451,7 +451,7 @@ public class ConversationController extends BaseController {
 									if(finalCountdown.decrementAndGet() == 0){
 										updateUserQuota(user.getUserId(), totalSize.get(), new Handler<Void>() {
 											public void handle(Void event) {
-												renderJson(request, new JsonObject(), 204);
+												noContent(request);
 											}
 										});
 

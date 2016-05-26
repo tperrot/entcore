@@ -40,7 +40,11 @@ public class DefaultResponseHandler {
 			@Override
 			public void handle(Either<String, JsonObject> event) {
 				if (event.isRight()) {
-					Renders.renderJson(request, event.right().getValue(), successCode);
+					if (successCode == 204) {
+						Renders.noContent(request);
+					} else {
+						Renders.renderJson(request, event.right().getValue(), successCode);
+					}
 				} else {
 					JsonObject error = new JsonObject()
 							.putString("error", event.left().getValue());
