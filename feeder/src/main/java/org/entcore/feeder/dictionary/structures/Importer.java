@@ -27,9 +27,7 @@ import org.vertx.java.core.json.JsonObject;
 import org.vertx.java.core.logging.Logger;
 import org.vertx.java.core.logging.impl.LoggerFactory;
 
-import java.util.HashSet;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -52,6 +50,7 @@ public class Importer {
 	private Neo4j neo4j;
 	private ConcurrentMap<String, Structure> structuresByUAI;
 	private ConcurrentHashMap<String, String> externalIdMapping;
+	private ConcurrentHashMap<String, List<String []>> groupClasses = new ConcurrentHashMap<>();
 	private Report report;
 	Set<String> importedGroups = new HashSet<>();
 
@@ -103,6 +102,7 @@ public class Importer {
 		profiles.clear();
 		userImportedExternalId.clear();
 		importedGroups.clear();
+		groupClasses.clear();
 		report = null;
 		transactionHelper = null;
 	}
@@ -140,13 +140,32 @@ public class Importer {
 	}
 
 	public Structure createOrUpdateStructure(JsonObject struct) {
+		JsonArray groups = null;
+		if (struct != null) {
+			groups = struct.getArray("groups");
+		}
 		final String error = structureValidator.validate(struct);
 		Structure s = null;
 		if (error != null) {
 			report.addIgnored("Structure", error, struct);
 			log.warn(error);
 		} else {
-			String externalId = struct.getString("externalId");
+			final String externalId = struct.getString("externalId");
+			if (groups != null) {
+				for (Object gcMapping : groups) {
+					if (!(gcMapping instanceof String)) continue;
+					String [] m = ((String) gcMapping).split("\\$");
+					String groupCode = m[0];
+					if (groupCode == null || groupCode.isEmpty() || m.length < 3) continue;
+					List<String []> classes = new LinkedList<>();
+					for (int i = 2; i < m.length; i++) {
+						classes.add(new String[] {externalId, m[i]});
+					}
+					if (!classes.isEmpty()) {
+						groupClasses.put(externalId + "$" + groupCode, classes);
+					}
+				}
+			}
 			s = structures.get(externalId);
 			if (s != null) {
 				s.update(struct);
@@ -553,9 +572,35 @@ public class Importer {
 							.putArray("structures", structuresByFunctions);
 					transactionHelper.add(qs, ps);
 				}
+				List<String []> classFromGroups = new LinkedList<>();
+				if (externalId != null && linkGroups != null) {
+					for (String[] structGroup : linkGroups) {
+						if (structGroup != null && structGroup[0] != null && structGroup[1] != null) {
+							String query =
+									"MATCH (s:Structure)" +
+											"<-[:DEPENDS]-(g:FunctionalGroup), " +
+											"(u:User) " +
+											"USING INDEX s:Structure(externalId) " +
+											"USING INDEX u:User(externalId) " +
+											"WHERE s.externalId = {structure} AND g.externalId = {group} AND u.externalId = {userExternalId} " +
+											"MERGE u-[:IN]->g";
+							JsonObject p = new JsonObject()
+									.putString("userExternalId", externalId)
+									.putString("structure", structGroup[0])
+									.putString("group", structGroup[1]);
+							transactionHelper.add(query, p);
+							List<String []> lc = groupClasses.get(structGroup[0] + "$" + structGroup[1]);
+							if (lc != null) {
+								classFromGroups.addAll(lc);
+							}
+						}
+					}
+				}
 				if (externalId != null && linkClasses != null) {
 					JsonArray classes = new JsonArray();
-					for (String[] structClass : linkClasses) {
+
+					classFromGroups.addAll(Arrays.asList(linkClasses));
+					for (String[] structClass : classFromGroups) {
 						if (structClass != null && structClass[0] != null && structClass[1] != null) {
 							String query =
 									"MATCH (s:Structure)<-[:BELONGS]-(c:Class)<-[:DEPENDS]-(g:ProfileGroup)" +
@@ -584,25 +629,6 @@ public class Importer {
 							.putString("source", currentSource)
 							.putArray("classes", classes);
 					transactionHelper.add(q, p);
-				}
-				if (externalId != null && linkGroups != null) {
-					for (String[] structGroup : linkGroups) {
-						if (structGroup != null && structGroup[0] != null && structGroup[1] != null) {
-							String query =
-									"MATCH (s:Structure)" +
-									"<-[:DEPENDS]-(g:FunctionalGroup), " +
-									"(u:User) " +
-									"USING INDEX s:Structure(externalId) " +
-									"USING INDEX u:User(externalId) " +
-									"WHERE s.externalId = {structure} AND g.externalId = {group} AND u.externalId = {userExternalId} " +
-									"MERGE u-[:IN]->g";
-							JsonObject p = new JsonObject()
-									.putString("userExternalId", externalId)
-									.putString("structure", structGroup[0])
-									.putString("group", structGroup[1]);
-							transactionHelper.add(query, p);
-						}
-					}
 				}
 			}
 		}
