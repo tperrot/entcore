@@ -301,8 +301,9 @@ public class Importer {
 			checkUpdateEmail(object);
 			if (linkStudent != null && linkStudent.size() > 0) {
 				String query2 =
-						"START u=node:node_auto_index(externalId={externalId}), " +
+						"START u0=node:node_auto_index(externalId={externalId}), " +
 						"s=node:node_auto_index({studentExternalIds}) " +
+						"MATCH u0-[:MERGED*0..1]->u " +
 						"MERGE u<-[:RELATED]-s ";
 				JsonObject p = new JsonObject()
 						.putString("externalId", object.getString("externalId"))
@@ -344,12 +345,11 @@ public class Importer {
 			if (externalId != null && structures != null && structures.size() > 0) {
 				JsonObject p = new JsonObject().putString("userExternalId", externalId);
 				String q1 = "MATCH (s:Structure)<-[:DEPENDS]-(g:ProfileGroup)-[:HAS_PROFILE]->(p:Profile), " +
-							"(u:User) " +
+							"(:User { externalId : {userExternalId}})-[:MERGED*0..1]->(u:User) " +
 							"USING INDEX s:Structure(externalId) " +
-							"USING INDEX u:User(externalId) " +
 							"USING INDEX p:Profile(externalId) " +
-							"WHERE s.externalId IN {structuresAdmin} AND u.externalId = {userExternalId} " +
-							"AND p.externalId = {profileExternalId} " +
+							"WHERE s.externalId IN {structuresAdmin} " +
+							"AND p.externalId = {profileExternalId} AND NOT(HAS(u.mergedWith)) " +
 							"MERGE u-[:IN]->g";
 				p.putArray("structuresAdmin", structures)
 						.putString("profileExternalId", DefaultProfiles.GUEST_PROFILE_EXTERNAL_ID);
@@ -370,12 +370,12 @@ public class Importer {
 					if (structClass != null && structClass[0] != null && structClass[1] != null) {
 						String q =
 								"MATCH (s:Structure)<-[:BELONGS]-(c:Class)<-[:DEPENDS]-(g:ProfileGroup)" +
-										"-[:DEPENDS]->(pg:ProfileGroup)-[:HAS_PROFILE]->(p:Profile), (u:User) " +
+										"-[:DEPENDS]->(pg:ProfileGroup)-[:HAS_PROFILE]->(p:Profile), " +
+										"(:User { externalId : {userExternalId}})-[:MERGED*0..1]->(u:User) " +
 										"USING INDEX s:Structure(externalId) " +
-										"USING INDEX u:User(externalId) " +
 										"USING INDEX p:Profile(externalId) " +
 										"WHERE s.externalId = {structure} AND c.externalId = {class} " +
-										"AND u.externalId = {userExternalId} AND p.externalId = {profileExternalId} " +
+										"AND p.externalId = {profileExternalId} AND NOT(HAS(u.mergedWith)) " +
 										"MERGE u-[:IN]->g";
 						JsonObject p = new JsonObject()
 								.putString("userExternalId", externalId)
@@ -540,22 +540,20 @@ public class Importer {
 					JsonObject p = new JsonObject().putString("userExternalId", externalId);
 					if (structuresByFunctions.size() == 1) {
 						query = "MATCH (s:Structure)<-[:DEPENDS]-(g:ProfileGroup)-[:HAS_PROFILE]->(p:Profile), " +
-								"(u:User) " +
+								"(:User { externalId : {userExternalId}})-[:MERGED*0..1]->(u:User) " +
 								"USING INDEX s:Structure(externalId) " +
-								"USING INDEX u:User(externalId) " +
 								"USING INDEX p:Profile(externalId) " +
-								"WHERE s.externalId = {structureAdmin} AND u.externalId = {userExternalId} " +
+								"WHERE s.externalId = {structureAdmin} AND NOT(HAS(u.mergedWith)) " +
 								"AND p.externalId = {profileExternalId} " +
 								"MERGE u-[:IN]->g";
 						p.putString("structureAdmin", (String) structuresByFunctions.get(0))
 								.putString("profileExternalId", profileExternalId);
 					} else {
 						query = "MATCH (s:Structure)<-[:DEPENDS]-(g:ProfileGroup)-[:HAS_PROFILE]->(p:Profile), " +
-								"(u:User) " +
+								"(:User { externalId : {userExternalId}})-[:MERGED*0..1]->(u:User) " +
 								"USING INDEX s:Structure(externalId) " +
-								"USING INDEX u:User(externalId) " +
 								"USING INDEX p:Profile(externalId) " +
-								"WHERE s.externalId IN {structuresAdmin} AND u.externalId = {userExternalId} " +
+								"WHERE s.externalId IN {structuresAdmin} AND NOT(HAS(u.mergedWith)) " +
 								"AND p.externalId = {profileExternalId} " +
 								"MERGE u-[:IN]->g ";
 						p.putArray("structuresAdmin", structuresByFunctions)
@@ -579,10 +577,9 @@ public class Importer {
 							String query =
 									"MATCH (s:Structure)" +
 											"<-[:DEPENDS]-(g:FunctionalGroup), " +
-											"(u:User) " +
+											"(:User { externalId : {userExternalId}})-[:MERGED*0..1]->(u:User) " +
 											"USING INDEX s:Structure(externalId) " +
-											"USING INDEX u:User(externalId) " +
-											"WHERE s.externalId = {structure} AND g.externalId = {group} AND u.externalId = {userExternalId} " +
+											"WHERE s.externalId = {structure} AND g.externalId = {group} AND NOT(HAS(u.mergedWith)) " +
 											"MERGE u-[:IN]->g";
 							JsonObject p = new JsonObject()
 									.putString("userExternalId", externalId)
@@ -604,12 +601,12 @@ public class Importer {
 						if (structClass != null && structClass[0] != null && structClass[1] != null) {
 							String query =
 									"MATCH (s:Structure)<-[:BELONGS]-(c:Class)<-[:DEPENDS]-(g:ProfileGroup)" +
-									"-[:DEPENDS]->(pg:ProfileGroup)-[:HAS_PROFILE]->(p:Profile), (u:User) " +
+									"-[:DEPENDS]->(pg:ProfileGroup)-[:HAS_PROFILE]->(p:Profile), " +
+									"(:User { externalId : {userExternalId}})-[:MERGED*0..1]->(u:User) " +
 									"USING INDEX s:Structure(externalId) " +
-									"USING INDEX u:User(externalId) " +
 									"USING INDEX p:Profile(externalId) " +
 									"WHERE s.externalId = {structure} AND c.externalId = {class} " +
-									"AND u.externalId = {userExternalId} AND p.externalId = {profileExternalId} " +
+									"AND NOT(HAS(u.mergedWith)) AND p.externalId = {profileExternalId} " +
 									"MERGE u-[:IN]->g";
 							JsonObject p = new JsonObject()
 									.putString("userExternalId", externalId)
@@ -671,11 +668,10 @@ public class Importer {
 					JsonObject p = new JsonObject().putString("userExternalId", externalId);
 					if (structures.size() == 1) {
 						query = "MATCH (s:Structure)<-[:DEPENDS]-(g:ProfileGroup)-[:HAS_PROFILE]->(p:Profile), " +
-								"(u:User) " +
+								"(:User { externalId : {userExternalId}})-[:MERGED*0..1]->(u:User) " +
 								"USING INDEX s:Structure(externalId) " +
-								"USING INDEX u:User(externalId) " +
 								"USING INDEX p:Profile(externalId) " +
-								"WHERE s.externalId = {structureAdmin} AND u.externalId = {userExternalId} " +
+								"WHERE s.externalId = {structureAdmin} AND NOT(HAS(u.mergedWith)) " +
 								"AND p.externalId = {profileExternalId} " +
 								"MERGE u-[:ADMINISTRATIVE_ATTACHMENT]->s " +
 								"WITH u, g " +
@@ -684,11 +680,10 @@ public class Importer {
 								.putString("profileExternalId", profileExternalId);
 					} else {
 						query = "MATCH (s:Structure)<-[:DEPENDS]-(g:ProfileGroup)-[:HAS_PROFILE]->(p:Profile), " +
-								"(u:User) " +
+								"(:User { externalId : {userExternalId}})-[:MERGED*0..1]->(u:User) " +
 								"USING INDEX s:Structure(externalId) " +
-								"USING INDEX u:User(externalId) " +
 								"USING INDEX p:Profile(externalId) " +
-								"WHERE s.externalId IN {structuresAdmin} AND u.externalId = {userExternalId} " +
+								"WHERE s.externalId IN {structuresAdmin} AND NOT(HAS(u.mergedWith)) " +
 								"AND p.externalId = {profileExternalId} " +
 								"MERGE u-[:ADMINISTRATIVE_ATTACHMENT]->s " +
 								"WITH u, g " +
@@ -713,12 +708,12 @@ public class Importer {
 						if (structClass != null && structClass[0] != null && structClass[1] != null) {
 							String query =
 									"MATCH (s:Structure)<-[:BELONGS]-(c:Class)<-[:DEPENDS]-(g:ProfileGroup)" +
-									"-[:DEPENDS]->(pg:ProfileGroup)-[:HAS_PROFILE]->(p:Profile), (u:User) " +
+									"-[:DEPENDS]->(pg:ProfileGroup)-[:HAS_PROFILE]->(p:Profile), " +
+									"(:User { externalId : {userExternalId}})-[:MERGED*0..1]->(u:User) " +
 									"USING INDEX s:Structure(externalId) " +
-									"USING INDEX u:User(externalId) " +
 									"USING INDEX p:Profile(externalId) " +
 									"WHERE s.externalId = {structure} AND c.externalId = {class} " +
-									"AND u.externalId = {userExternalId} AND p.externalId = {profileExternalId} " +
+									"AND NOT(HAS(u.mergedWith))  AND p.externalId = {profileExternalId} " +
 									"MERGE u-[:IN]->g";
 							JsonObject p = new JsonObject()
 									.putString("userExternalId", externalId)
@@ -745,11 +740,10 @@ public class Importer {
 							String query =
 									"MATCH (s:Structure)" +
 									"<-[:DEPENDS]-(g:FunctionalGroup), " +
-									"(u:User) " +
+									"(:User { externalId : {userExternalId}})-[:MERGED*0..1]->(u:User) " +
 									"USING INDEX s:Structure(externalId) " +
-									"USING INDEX u:User(externalId) " +
 									"WHERE s.externalId = {structure} AND g.externalId = {group} " +
-									"AND u.externalId = {userExternalId} " +
+									"AND NOT(HAS(u.mergedWith)) " +
 									"MERGE u-[:IN]->g";
 							JsonObject p = new JsonObject()
 									.putString("userExternalId", externalId)
@@ -795,7 +789,9 @@ public class Importer {
 						if (!(o instanceof String)) continue;
 						String query =
 								"START u=node:node_auto_index(externalId={userExternalId}), " +
-								"r=node:node_auto_index(externalId={user}) " +
+								"r0=node:node_auto_index(externalId={user}) " +
+								"MATCH r0-[:MERGED*0..1]->(r:User) " +
+								"WHERE NOT(HAS(r.mergedWith)) " +
 								"CREATE UNIQUE u-[:RELATED]->r";
 						JsonObject p = new JsonObject()
 								.putString("userExternalId", externalId)
