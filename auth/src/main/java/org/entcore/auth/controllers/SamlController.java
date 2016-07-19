@@ -111,6 +111,65 @@ public class SamlController extends BaseController {
 		});
 	}
 
+	@Post("/saml/testacs")
+	public void testacs(final HttpServerRequest request) {
+		getSamlResponse(request, new Handler<String>() {
+			@Override
+			public void handle(String samlResponse) {
+
+
+				Response response = null;
+				try {
+					response = SamlUtils.unmarshallResponse(samlResponse);
+				} catch (Exception e) {
+					log.error(e.getMessage(), e);
+					badRequest(request);
+					return;
+				}
+				if (response.getAssertions() == null || response.getAssertions().size() != 1) {
+					redirect(request, LOGIN_PAGE);
+					return;
+				}
+				final Assertion assertion = response.getAssertions().get(0);
+				SamlServiceProvider sp = spFactory.serviceProvider(assertion);
+				sp.execute(assertion, new Handler<Either<String, JsonElement>>() {
+					@Override
+					public void handle(Either<String, JsonElement> event) {
+						if (event.isLeft()) {
+							redirect(request, LOGIN_PAGE);
+						} else {
+							final String nameId = (assertion != null && assertion.getSubject() != null &&
+									assertion.getSubject().getNameID() != null) ? assertion.getSubject().getNameID().getValue() : null;
+							final String sessionIndex = getSessionId(assertion);
+							if (log.isDebugEnabled()) {
+								log.debug("NameID : " + nameId);
+								log.debug("SessionIndex : " + sessionIndex);
+							}
+							if (nameId == null || sessionIndex == null || nameId.trim().isEmpty() || sessionIndex.trim().isEmpty()) {
+								redirect(request, LOGIN_PAGE);
+								return;
+							}
+							if (event.right().getValue() != null && event.right().getValue().isObject()) {
+								final JsonObject res = event.right().getValue().asObject();
+								authenticate(res, sessionIndex, nameId, request);
+							} else if (event.right().getValue() != null && event.right().getValue().isArray() && isNotEmpty(signKey)) {
+								try {
+									JsonObject params = getUsersWithSignatures(event.right().getValue().asArray(), sessionIndex, nameId);
+									renderView(request, params, "selectFederatedUser.html", null);
+								} catch (NoSuchAlgorithmException | InvalidKeyException | UnsupportedEncodingException e) {
+									log.error("Error signing federated users.", e);
+									redirect(request, LOGIN_PAGE);
+								}
+							} else {
+								redirect(request, LOGIN_PAGE);
+							}
+						}
+					}
+				});
+			}
+		});
+	}
+
 	@Get("/saml/slo")
 	public void slo(final HttpServerRequest request) {
 		final String c = request.params().get("callback");
