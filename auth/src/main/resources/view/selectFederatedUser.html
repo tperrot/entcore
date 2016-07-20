@@ -5,11 +5,12 @@
 	<title>{{name}}</title>
 	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 	<script src="{{#infra}}js/loader.js{{/infra}}" type="text/javascript" id="context"></script>
-	<script type="text/ng-template" id="empty"></script>
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+	<script type="text/javascript">var notLoggedIn = true;</script>
 </head>
 
 <body>
-<portal ng-if="!notFound">
+<default-styles>
 	<div class="row">
 		<div class="twelve cell">
 			<div class="seven cell">
@@ -35,12 +36,8 @@
 					<input type="hidden" name="sessionIndex" value="{{sessionIndex}}" />
 					<input type="hidden" name="key" value="{{key}}" />
 					<div class=" row">
-						<div class="margin-two height-three">
-							<div class="twelve cell horizontal-spacing">
-								<label class="three cell">{{structureName}} - {{login}}</label>
-								<button class="right-magnet"><i18n>connect.federated.user</i18n></button>
-							</div>
-						</div>
+						<label class="three cell">{{structureName}} - {{login}}</label>
+						<button class="right-magnet" style="margin-bottom:5px;"><i18n>connect.federated.user</i18n></button>
 					</div>
 				</form>
 				{{/users}}
@@ -49,7 +46,7 @@
 			</article>
 		</article>
 	</section>
-</portal>
+	</default-styles>
 </body>
 
 </html>

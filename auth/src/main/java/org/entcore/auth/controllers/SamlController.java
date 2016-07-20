@@ -218,7 +218,7 @@ public class SamlController extends BaseController {
 		});
 	}
 
-	@Post("/auth/saml/selectUser")
+	@Post("/saml/selectUser")
 	public  void selectUser(final HttpServerRequest request) {
 		request.expectMultiPart(true);
 		request.endHandler(new VoidHandler() {
@@ -226,7 +226,9 @@ public class SamlController extends BaseController {
 			protected void handle() {
 				final JsonObject j = new JsonObject();
 				for (String attr : request.formAttributes().names()) {
-					j.putString(attr, request.formAttributes().get(attr));
+					if (isNotEmpty(request.formAttributes().get(attr))) {
+						j.putString(attr, request.formAttributes().get(attr));
+					}
 				}
 				final String nameId = j.getString("nameId");
 				final String sessionIndex = j.getString("sessionIndex");
