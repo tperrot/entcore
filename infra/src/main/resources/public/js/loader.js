@@ -41,7 +41,9 @@ var currentLanguage = '';
             request.onload = function(){
                 if(request.status === 200){
                     currentLanguage = JSON.parse(request.responseText).locale;
-                }
+                }else{
+					currentLanguage = 'fr'
+				}
             };
             request.send(null);
         }
