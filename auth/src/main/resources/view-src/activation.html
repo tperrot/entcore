@@ -21,18 +21,20 @@
 
 <html>
 	<head>
-		<title>{{#i18n}}auth.message.title{{/i18n}}</title>
+		<title>{{#i18n}}auth.activation.title{{/i18n}}</title>
+       {{#notLoggedIn}}
+       <script type="text/javascript">var notLoggedIn = true;</script>
+       {{/notLoggedIn}}
 		<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-		<script type="text/javascript" src="/auth/public/dist/entcore/ng-app-c041c9af5c.js" id="context"></script>
-		<script type="text/javascript" src="/auth/public/dist/application-c08ae9951c.js"></script>
+		<script type="text/javascript" src="/auth/public/dist/entcore/ng-app.js" id="context"></script>
+		<script type="text/javascript" src="/auth/public/dist/application.js"></script>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-        {{#notLoggedIn}}
-        <script type="text/javascript">var notLoggedIn = true;</script>
-        {{/notLoggedIn}}
 	</head>
-	<body ng-controller="ForgotController">
-		<default-styles>
-			<div ng-include="template.containers.main" class="absolute"></div>
-		</default-styles>
+	<body ng-controller="ActivationController"
+		  ng-init='user.login = "{{login}}"; user.activationCode = "{{activationCode}}"'>
+	<default-styles>
+		<div ng-include="template.containers.main" class="absolute"></div>
+	</default-styles>
+
 	</body>
 </html>
