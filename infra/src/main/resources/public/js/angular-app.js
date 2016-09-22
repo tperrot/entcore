@@ -3875,20 +3875,6 @@ module.directive('dragItem', function() {
                     firstTick = true;
                     element.attr('style', '');
                 },
-                tick: function(e, mouse) {
-                    matchedElement = undefined;
-                    $("[drop-item]").each(function(index, el){
-                        if($(el).offset().left < mouse.x && $(el).offset().left + $(el).width() > mouse.x &&
-                        $(el).offset().top - (window.scrollY || window.pageYOffset) < mouse.y && $(el).offset().top + $(el).height() - (window.scrollY || window.pageYOffset) > mouse.y)
-                        {
-                            $(el).addClass('drag-over');
-                            matchedElement = $(el);
-                        }
-                        else{
-                            $(el).removeClass('drag-over');
-                        }
-                    })
-
                 dragOver: function(item){
                     item.addClass('dragover');
                     matchedElement = item;
