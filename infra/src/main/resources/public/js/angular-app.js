@@ -3883,6 +3883,7 @@ module.directive('dragItem', function() {
                 dragOut: function(item){
                     item.removeClass('dragover');
                     matchedElement = undefined;
+                    console.log(item)
                 },
                 tick: function() {
                     if (firstTick) {

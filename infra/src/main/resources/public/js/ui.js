@@ -826,6 +826,7 @@ ui.extendElement = {
                     element.offset(newOffset);
 
                     // hit test
+                    var newDragoverred = undefined;
                     dropItemsAreas.forEach(function(dropElementInfos){
                         if( (
                                 (dropElementInfos.offset.left < newOffset.left &&
@@ -844,26 +845,25 @@ ui.extendElement = {
                             )
                         )
                          {
+                             newDragoverred = dropElementInfos.item;
+
                             //on check si c bien une function
-                            if(params && typeof params.dragOver === 'function'){
+                            if(params && typeof params.dragOver === 'function' && ((dragoverred && dragoverred[0] !== dropElementInfos.item[0]) || !dragoverred)){
                                 //on applique le dragover sur l'item (donc declenche le 'faux' mouseover)
                                 params.dragOver(dropElementInfos.item)
-                                dragoverred = dropElementInfos.item;
                                 dropElementInfos.item.trigger('dragover');
                             }
-                        }else{
-                            if(dragoverred && dragoverred[0] === dropElementInfos.item[0]){
-                                dragoverred = undefined
-
-                                if(params && typeof params.dragOut === 'function'){
-                                    params.dragOut(dropElementInfos.item)
-                                    dropElementInfos.item.trigger('dragout');
-                                }
-                            }
                         }
-                    })
+                    });
 
+                    if((newDragoverred && dragoverred && dragoverred[0] !== newDragoverred[0]) || (!newDragoverred && dragoverred)){
+                        dragoverred.trigger('dragout');
+                        if(params && typeof params.dragOut === 'function'){
+                            params.dragOut(dragoverred);
+                        }
+                    }
 
+                    dragoverred = newDragoverred;
 
                     if (params && typeof params.tick === 'function') {
                         params.tick(e, mouse);
