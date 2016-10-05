@@ -26,6 +26,10 @@ import org.vertx.java.core.json.JsonObject;
 
 public interface OpenIdConnectServiceProvider {
 
+	public static final String UNRECOGNIZED_USER_IDENTITY = "unrecognized.user.identity";
+
 	void executeFederate(JsonObject payload, Handler<Either<String, JsonElement>> handler);
+
+	void mappingUser(String login, String password, JsonObject payload, Handler<Either<String, JsonElement>> handler);
 
 }
