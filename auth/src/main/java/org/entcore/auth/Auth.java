@@ -149,6 +149,7 @@ public class Auth extends BaseServer {
 			DefaultOpendIdConnectService provider = new DefaultOpendIdConnectService(openidFederate.getString("iss"));
 			provider.setSetFederated(openidFederate.getBoolean("set-federated", true));
 			openIdConnectController.setOpenIdConnectServiceProvider(provider);
+			openIdConnectController.setSubMapping(openidFederate.getBoolean("authorizeSubMapping", false));
 			addController(openIdConnectController);
 
 			final JsonArray authorizedHostsLogin = openidFederate.getArray("authorizedHostsLogin");

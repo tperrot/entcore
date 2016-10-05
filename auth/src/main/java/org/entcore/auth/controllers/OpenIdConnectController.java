@@ -20,11 +20,14 @@
 package org.entcore.auth.controllers;
 
 import fr.wseduc.rs.Get;
+import fr.wseduc.rs.Post;
 import fr.wseduc.webutils.Either;
 import fr.wseduc.webutils.http.oauth.OpenIdConnectClient;
 import fr.wseduc.webutils.request.CookieHelper;
+import fr.wseduc.webutils.security.HmacSha1;
 import org.entcore.auth.services.OpenIdConnectServiceProvider;
 import org.vertx.java.core.Handler;
+import org.vertx.java.core.VoidHandler;
 import org.vertx.java.core.http.HttpServerRequest;
 import org.vertx.java.core.json.JsonElement;
 import org.vertx.java.core.json.JsonObject;
@@ -33,12 +36,15 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import static fr.wseduc.webutils.Utils.isEmpty;
+
 public class OpenIdConnectController extends AbstractFederateController {
 
-	private static final String OPENID = "openid";
+	private static final String SCOPE_OPENID = "openid profile";
 	private final Map<String, OpenIdConnectClient> openIdConnectClients = new HashMap<>();
 	private OpenIdConnectServiceProvider openIdConnectServiceProvider;
 	private JsonObject certificates = new JsonObject();
+	private boolean subMapping;
 
 	@Get("/openid/certs")
 	public void certs(HttpServerRequest request) {
@@ -51,7 +57,7 @@ public class OpenIdConnectController extends AbstractFederateController {
 		if (oic == null) return;
 		final String state = UUID.randomUUID().toString();
 		CookieHelper.getInstance().setSigned("csrfstate", state, 900, request);
-		oic.authorizeRedirect(request, state, OPENID);
+		oic.authorizeRedirect(request, state, SCOPE_OPENID);
 	}
 
 	@Get("/openid/authenticate")
@@ -65,13 +71,24 @@ public class OpenIdConnectController extends AbstractFederateController {
 		}
 		oic.authorizationCodeToken(request, state, true, new Handler<JsonObject>() {
 			@Override
-			public void handle(JsonObject event) {
-				if (event != null) {
-					openIdConnectServiceProvider.executeFederate(event, new Handler<Either<String, JsonElement>>() {
+			public void handle(final JsonObject payload) {
+				if (payload != null) {
+					openIdConnectServiceProvider.executeFederate(payload, new Handler<Either<String, JsonElement>>() {
 						@Override
-						public void handle(Either<String, JsonElement> event) {
-							if (event.isRight() && event.right().getValue().isObject()) {
-								authenticate(event.right().getValue().asObject(), null, null, request);
+						public void handle(Either<String, JsonElement> res) {
+							if (res.isRight() && res.right().getValue().isObject()) {
+								authenticate(res.right().getValue().asObject(), null, null, request);
+							} else if (subMapping && res.isLeft() && OpenIdConnectServiceProvider.UNRECOGNIZED_USER_IDENTITY
+									.equals(res.left().getValue())) {
+								final String p = payload.encode();
+								try {
+									JsonObject params = new JsonObject().putString("payload", p)
+											.putString("key", HmacSha1.sign(p, signKey));
+									renderView(request, params, "mappingFederatedUser.html", null);
+								} catch (Exception e) {
+									log.error("Error loading mapping openid connect identity.", e);
+									renderError(request);
+								}
 							} else {
 								forbidden(request, "invalid.payload");
 							}
@@ -79,6 +96,45 @@ public class OpenIdConnectController extends AbstractFederateController {
 					});
 				} else {
 					forbidden(request, "invalid_token");
+				}
+			}
+		});
+	}
+
+	@Post("/openid/mappingUser")
+	public void mappingUser(final HttpServerRequest request) {
+		if (!subMapping) {
+			forbidden(request, "unauthorized.sub.mapping");
+			return;
+		}
+		request.expectMultiPart(true);
+		request.endHandler(new VoidHandler() {
+			@Override
+			protected void handle() {
+				final String login = request.formAttributes().get("login");
+				final String password = request.formAttributes().get("password");
+				final String payload = request.formAttributes().get("payload");
+				final String key = request.formAttributes().get("key");
+				try {
+					if (isEmpty(login) || isEmpty(password) || isEmpty(payload) || isEmpty(key) ||
+							!key.equals(HmacSha1.sign(payload, signKey))) {
+						badRequest(request, "invalid.attribute");
+						return;
+					}
+					openIdConnectServiceProvider.mappingUser(login, password, new JsonObject(payload),
+							new Handler<Either<String, JsonElement>>() {
+						@Override
+						public void handle(Either<String, JsonElement> event) {
+							if (event.isRight()) {
+								authenticate(event.right().getValue().asObject(), null, null, request);
+							} else {
+								forbidden(request, "invalid.sub.mapping");
+							}
+						}
+					});
+				} catch (Exception e) {
+					log.error("Error mapping OpenId Connect user.", e);
+					badRequest(request, "invalid.attribute");
 				}
 			}
 		});
@@ -104,4 +160,9 @@ public class OpenIdConnectController extends AbstractFederateController {
 	public void setCertificates(JsonObject certificates) {
 		this.certificates = certificates;
 	}
+
+	public void setSubMapping(boolean subMapping) {
+		this.subMapping = subMapping;
+	}
+
 }

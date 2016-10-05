@@ -22,15 +22,11 @@ package org.entcore.auth.controllers;
 import fr.wseduc.rs.Get;
 import fr.wseduc.rs.Post;
 import fr.wseduc.webutils.Either;
-import fr.wseduc.webutils.I18n;
-import fr.wseduc.webutils.http.BaseController;
 import fr.wseduc.webutils.request.CookieHelper;
 import fr.wseduc.webutils.security.HmacSha1;
 import org.entcore.auth.security.SamlUtils;
 import org.entcore.auth.services.SamlServiceProvider;
 import org.entcore.auth.services.SamlServiceProviderFactory;
-import org.entcore.auth.users.UserAuthAccount;
-import org.entcore.common.events.EventStore;
 import org.entcore.common.user.UserInfos;
 import org.entcore.common.user.UserUtils;
 import org.opensaml.DefaultBootstrap;
@@ -51,14 +47,12 @@ import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
-import java.util.UUID;
 
 import static fr.wseduc.webutils.Utils.isNotEmpty;
 
 public class SamlController extends AbstractFederateController {
 
 	private SamlServiceProviderFactory spFactory;
-	private String signKey;
 
 	public SamlController() throws ConfigurationException {
 		DefaultBootstrap.bootstrap();
@@ -284,7 +278,4 @@ public class SamlController extends AbstractFederateController {
 		this.spFactory = spFactory;
 	}
 
-	public void setSignKey(String signKey) {
-		this.signKey = signKey;
-	}
 }

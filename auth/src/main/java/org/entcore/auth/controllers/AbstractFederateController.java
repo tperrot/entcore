@@ -37,6 +37,7 @@ public abstract class AbstractFederateController extends BaseController {
 	public static final String LOGIN_PAGE = "/auth/login";
 	private UserAuthAccount userAuthAccount;
 	private EventStore eventStore;
+	protected String signKey;
 
 	protected void authenticate(JsonObject res, String sessionIndex, String nameId, HttpServerRequest request) {
 		final String userId = res.getString("id");
@@ -103,6 +104,10 @@ public abstract class AbstractFederateController extends BaseController {
 
 	public void setEventStore(EventStore eventStore) {
 		this.eventStore = eventStore;
+	}
+
+	public void setSignKey(String signKey) {
+		this.signKey = signKey;
 	}
 
 }
