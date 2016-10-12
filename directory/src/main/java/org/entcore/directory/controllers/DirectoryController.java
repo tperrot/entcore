@@ -127,6 +127,12 @@ public class DirectoryController extends BaseController {
 		});
 	}
 
+	@Post("/edt")
+	public void launchEdt(HttpServerRequest request) {
+		eb.send("entcore.feeder", new JsonObject().putString("action", "edt"));
+		request.response().end();
+	}
+
 	@Post("/export")
 	@SecuredAction("directory.export")
 	public void launchExport(HttpServerRequest request) {

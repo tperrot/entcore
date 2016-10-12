@@ -32,6 +32,7 @@ import org.entcore.feeder.be1d.Be1dValidator;
 import org.entcore.feeder.csv.CsvFeeder;
 import org.entcore.feeder.csv.CsvValidator;
 import org.entcore.feeder.dictionary.structures.*;
+import org.entcore.feeder.edtudt.EDTImporter;
 import org.entcore.feeder.export.Exporter;
 import org.entcore.feeder.export.eliot.EliotExporter;
 import org.entcore.feeder.utils.*;
@@ -236,6 +237,13 @@ public class Feeder extends BusModBase implements Handler<Message<JsonObject>> {
 				break;
 			case "mark-duplicates" :
 				duplicateUsers.markDuplicates(message);
+				break;
+			case "edt":
+				try {
+					new EDTImporter(uai).parse();
+				} catch (Exception e) {
+					logger.error(e.getMessage(), e);
+				}
 				break;
 			default:
 				sendError(message, "invalid.action");
