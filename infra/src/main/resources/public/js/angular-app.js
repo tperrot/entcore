@@ -1587,12 +1587,14 @@ module.directive('topNotification', function() {
             '<div class="notify-top-actions">' +
             '<span ng-click="cancel()">[[doConfirm ? labels().cancel : labels().ok]]</span>' +
             '<span ng-click="ok()" ng-show="doConfirm">[[labels().confirm]]</span> ' +
+            '<span ng-repeat="add in additional" ng-click="add.action()">[[ add.label ]]</span> ' +
             '</div>' +
             '</div>',
         scope: {
             trigger: '=',
             confirm: '=',
             content: '=',
+            additional: '=',
             labels: '&'
         },
         link: function(scope, element, attributes) {
@@ -1614,6 +1616,8 @@ module.directive('topNotification', function() {
                     }
                 }
             }
+            if(!scope.additional || ! (scope.additional instanceof Array))
+                scope.additional = []
             scope.$watch('trigger', function(newVal) {
                 if (newVal)
                     element.slideDown()
@@ -1700,7 +1704,7 @@ module.directive('dropDown', function($compile, $timeout) {
         link: function(scope, element, attributes) {
             scope.limit = 6;
             var dropDown = element.find('[data-drop-down]');
-            
+
             scope.setDropDownHeight = function() {
                 var liHeight = 0;
                 var max = Math.min(scope.limit, scope.options.length);
@@ -3888,7 +3892,7 @@ module.directive('dragItem', function() {
                             $(el).removeClass('drag-over');
                         }
                     })
-                    
+
                     if (firstTick) {
                         $('[drop-item]').removeClass('drag-over');
                         element.css({

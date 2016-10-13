@@ -11,6 +11,7 @@
   "admin.history": "Historique",
   "admin.title": "Console d'administration",
   "admin.welcomeMessage": "Message d'accueil",
+  "admin.timeline.history": "Traitement des signalements",
   "apps.drag": "Déposez ici vos applications préférées.",
   "archive": "Export",
   "archives": "Export",
@@ -248,5 +249,6 @@
   "admin.xiti": "Paramétrage Xiti",
   "calendar": "Agenda",
   "actualites": "Actualités",
-  "rack": "Casier"
+  "rack": "Casier",
+  "timeline": "Fil de nouveautés"
 }
