@@ -19,7 +19,6 @@
 
 package org.entcore.feeder.edtudt;
 
-import com.eclipsesource.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
@@ -27,6 +26,7 @@ import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.XMLReaderFactory;
 
 import java.io.IOException;
+import java.io.StringReader;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -35,6 +35,7 @@ import java.util.Set;
 public class EDTImporter {
 
 	public static final String IDENT = "Ident";
+	private final EDTUtils edtUtils;
 	private final String UAI;
 	private final Map<String, String> rooms = new HashMap<>();
 	private final Map<String, JsonObject> teachers = new HashMap<>();
@@ -45,7 +46,8 @@ public class EDTImporter {
 	private final Map<String, String> startPlaces = new HashMap<>(); // TODO use jodatime
 	private final Map<String, String> endPlaces = new HashMap<>();
 
-	public EDTImporter(String uai) {
+	public EDTImporter(EDTUtils edtUtils, String uai) {
+		this.edtUtils = edtUtils;
 		UAI = uai;
 	}
 
@@ -54,8 +56,9 @@ public class EDTImporter {
 
 	}
 
-	public void parse() throws IOException, SAXException {
-		InputSource in = new InputSource("/home/dboissin/Docs/EDT - UDT/ImportCahierTexte/EDT/HarounTazieff.xml");
+	public void parse() throws Exception {
+		//InputSource in = new InputSource("/home/dboissin/Docs/EDT - UDT/ImportCahierTexte/EDT/HarounTazieff.xml");
+		InputSource in = new InputSource(new StringReader(edtUtils.decryptExport("/tmp/Edt_To_NEO-Open_1234567H.xml")));
 		EDTHandler sh = new EDTHandler(this);
 		XMLReader xr = XMLReaderFactory.createXMLReader();
 		xr.setContentHandler(sh);

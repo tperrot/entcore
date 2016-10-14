@@ -33,6 +33,7 @@ import org.entcore.feeder.csv.CsvFeeder;
 import org.entcore.feeder.csv.CsvValidator;
 import org.entcore.feeder.dictionary.structures.*;
 import org.entcore.feeder.edtudt.EDTImporter;
+import org.entcore.feeder.edtudt.EDTUtils;
 import org.entcore.feeder.export.Exporter;
 import org.entcore.feeder.export.eliot.EliotExporter;
 import org.entcore.feeder.utils.*;
@@ -240,7 +241,7 @@ public class Feeder extends BusModBase implements Handler<Message<JsonObject>> {
 				break;
 			case "edt":
 				try {
-					new EDTImporter(uai).parse();
+					new EDTImporter(new EDTUtils(vertx, "/tmp/pronote.pk8", "NEO-Open"), null).parse();
 				} catch (Exception e) {
 					logger.error(e.getMessage(), e);
 				}
