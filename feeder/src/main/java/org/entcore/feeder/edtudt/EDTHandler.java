@@ -36,6 +36,7 @@ public class EDTHandler extends DefaultHandler {
 	private String currentEntityType = "";
 	private JsonObject currentEntity;
 	private final EDTImporter edtImporter;
+	private boolean firstCours = true;
 
 	public EDTHandler(EDTImporter edtImporter) {
 		this.edtImporter = edtImporter;
@@ -57,13 +58,21 @@ public class EDTHandler extends DefaultHandler {
 
 		switch (localName) {
 			case "Cours" :
+				if (firstCours) {
+					firstCours = false;
+				} else {
+					currentEntityType = localName;
+					currentEntity = o;
+				}
+				break;
 			case "Matiere" :
 			case "Eleve" :
 			case "Professeur" :
-			case "Place" :
 			case "Classe" :
 			case "Groupe" :
 			case "Salle" :
+			case "GrilleHoraire" :
+			case "AnneeScolaire" :
 				currentEntityType = localName;
 				currentEntity = o;
 				break;
@@ -98,9 +107,6 @@ public class EDTHandler extends DefaultHandler {
 				case "Professeur" :
 					edtImporter.addProfesseur(currentEntity);
 					break;
-				case "Place" :
-					edtImporter.addPlace(currentEntity);
-					break;
 				case "Classe" :
 					edtImporter.addClasse(currentEntity);
 					break;
@@ -109,6 +115,12 @@ public class EDTHandler extends DefaultHandler {
 					break;
 				case "Salle" :
 					edtImporter.addRoom(currentEntity);
+					break;
+				case "GrilleHoraire":
+					edtImporter.initSchedule(currentEntity);
+					break;
+				case "AnneeScolaire":
+					edtImporter.initSchoolYear(currentEntity);
 					break;
 			}
 			currentEntity = null;

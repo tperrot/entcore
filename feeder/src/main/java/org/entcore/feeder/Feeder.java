@@ -241,7 +241,7 @@ public class Feeder extends BusModBase implements Handler<Message<JsonObject>> {
 				break;
 			case "edt":
 				try {
-					new EDTImporter(new EDTUtils(vertx, "/tmp/pronote.pk8", "NEO-Open"), null).parse();
+					new EDTImporter(new EDTUtils(vertx, "/home/dboissin/Docs/EDT - UDT/pronote.pk8", "NEO-Open"), null).parse();
 				} catch (Exception e) {
 					logger.error(e.getMessage(), e);
 				}

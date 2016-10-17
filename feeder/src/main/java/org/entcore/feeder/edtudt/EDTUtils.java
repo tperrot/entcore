@@ -38,9 +38,7 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.Unmarshaller;
-import javax.xml.transform.stream.StreamSource;
 import java.io.File;
-import java.math.BigInteger;
 import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
@@ -104,7 +102,7 @@ public class EDTUtils {
 			throw new ValidationException("invalid.edt.key");
 		}
 
-		final Cipher cipher2 = Cipher.getInstance("AES/CBC/NoPadding");
+		final Cipher cipher2 = Cipher.getInstance("AES/CBC/PKCS5Padding");
 		cipher2.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
 		final byte[] content = cipher2.doFinal(edtEncryptedExport.getCONTENU().getValue());
 
@@ -116,24 +114,10 @@ public class EDTUtils {
 		}
 
 		final String xmlContent = XML.format(new String(decompressedContent), 0, true);
-//		log.info(xmlContent);
-//		log.info("vérif length : "  + edtEncryptedExport.getVERIFICATION().length);
-//		log.info("vérif : " + new String(edtEncryptedExport.getVERIFICATION()));
-//		log.info("vérif : " + Base64.encodeBytes(edtEncryptedExport.getVERIFICATION()));
-//		log.info("compressed content sha256 : " + Base64.encodeBytes(Sha256.hash(content)));
-//		log.info("compressed base64 content sha256 : " + Base64.encodeBytes(
-//				Sha256.hash(Base64.encodeBytes(content).getBytes())));
-//		log.info("content sha256 : " + Sha256.hash(xmlContent));
-//		log.info("content base64 sha256 : " + Sha256.hash(Base64.encodeBytes(xmlContent.getBytes())));
-//		String hash = new BigInteger(1, edtEncryptedExport.getVERIFICATION()).toString(16);
-//		while (hash.length() < 64) {
-//			hash = "0" + hash;
-//		}
-//		log.info("vérif hex : " + hash);
 
-//		if (!Sha256.equality(xmlContent.getBytes(), edtEncryptedExport.getVERIFICATION())) {
-//			throw new ValidationException("invalid.content.hash");
-//		}
+		if (!Sha256.equality(content, edtEncryptedExport.getVERIFICATION())) {
+			throw new ValidationException("invalid.content.hash");
+		}
 		return xmlContent;
 	}
 

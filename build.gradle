@@ -168,6 +168,7 @@ project(':feeder') {
     compile "net.sf.opencsv:opencsv:$opencsvVersion"
     compile "com.googlecode.juniversalchardet:juniversalchardet:$juniversalchardetVersion"
     compile "org.apache.commons:commons-lang3:$commonsLangVersion"
+    compile "joda-time:joda-time:$jodaTimeVersion"
   }
 }
 
