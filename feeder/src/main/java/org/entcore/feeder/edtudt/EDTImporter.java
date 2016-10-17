@@ -35,6 +35,7 @@ public class EDTImporter {
 
 	private static final Logger log = LoggerFactory.getLogger(EDTImporter.class);
 	public static final String IDENT = "Ident";
+	private final List<String> ignoreAttributes = Arrays.asList("Etiquette", "Periode");
 	private final EDTUtils edtUtils;
 	private final String UAI;
 	private final Map<String, String> rooms = new HashMap<>();
@@ -43,11 +44,9 @@ public class EDTImporter {
 	private final Map<String, JsonObject> subjects = new HashMap<>();
 	private final Map<String, JsonObject> classes = new HashMap<>();
 	private final Map<String, JsonObject> groups = new HashMap<>();
-	private final Map<String, String> startPlaces = new HashMap<>(); // TODO use jodatime
-	private final Map<String, String> endPlaces = new HashMap<>();
+	private HashMap<String, JsonObject> personnels = new HashMap<>();
 	private DateTime startDateWeek1;
 	private int slotDuration; // minutes
-	private final int[] dayOfWeekMapping = new int[7];
 
 	public EDTImporter(EDTUtils edtUtils, String uai) {
 		this.edtUtils = edtUtils;
@@ -68,6 +67,25 @@ public class EDTImporter {
 		xr.parse(in);
 	}
 
+	public void initSchoolYear(JsonObject schoolYear) {
+		startDateWeek1 = DateTime.parse(schoolYear.getString("DatePremierJourSemaine1"));
+	}
+
+	public void initSchedule(JsonObject currentEntity) {
+		slotDuration = Integer.parseInt(currentEntity.getString("DureePlace"));
+		for (Object o : currentEntity.getArray("Place")) {
+			if (!(o instanceof JsonObject) || !"0".equals(((JsonObject) o).getString("Numero"))) continue;
+			String[] startHour = ((JsonObject) o).getString("LibelleHeureDebut").split(":");
+			if (startHour.length == 3) {
+				startDateWeek1 = startDateWeek1
+						.plusHours(Integer.parseInt(startHour[0]))
+						.plusMinutes(Integer.parseInt(startHour[1]))
+						.plusSeconds(Integer.parseInt(startHour[2]));
+				break;
+			}
+		}
+	}
+
 	public void addRoom(JsonObject currentEntity) {
 		// TODO valid entity
 		rooms.put(currentEntity.getString("Ident"), currentEntity.getString("Nom"));
@@ -83,13 +101,6 @@ public class EDTImporter {
 		// TODO valid entity
 		final String id = currentEntity.getString(IDENT);
 		classes.put(id, currentEntity);
-	}
-
-	public void addPlace(JsonObject currentEntity) {
-		// TODO valid entity
-		final String id = currentEntity.getString("Numero");
-		startPlaces.put(id, currentEntity.getString("LibelleHeureDebut"));
-		endPlaces.put(id, currentEntity.getString("LibelleHeureFin"));
 	}
 
 	public void addProfesseur(JsonObject currentEntity) {
@@ -111,13 +122,19 @@ public class EDTImporter {
 		subjects.put(id, currentEntity);
 	}
 
+	public void addPersonnel(JsonObject currentEntity) {
+// TODO valid entity
+		final String id = currentEntity.getString(IDENT);
+		personnels.put(id, currentEntity);
+	}
+
 	public void addCourse(JsonObject currentEntity) {
 		final List<Long> weeks = new ArrayList<>();
 		final List<JsonObject> items = new ArrayList<>();
 		final JsonArray courses = new JsonArray();
 
 		for (String attr: currentEntity.getFieldNames()) {
-			if (currentEntity.getValue(attr) instanceof JsonArray) {
+			if (!ignoreAttributes.contains(attr) && currentEntity.getValue(attr) instanceof JsonArray) {
 				for (Object o: currentEntity.getArray(attr)) {
 					if (!(o instanceof JsonObject)) continue;
 					final JsonObject j = (JsonObject) o;
@@ -131,24 +148,36 @@ public class EDTImporter {
 			}
 		}
 
-		// TODO manage semaine Annulation
+		if (currentEntity.containsField("SemainesAnnulation")) {
+			log.info(currentEntity.encode());
+		}
+		final Long cancelWeek = (currentEntity.getString("SemainesAnnulation") != null) ?
+				Long.valueOf(currentEntity.getString("SemainesAnnulation")) : null;
 		BitSet lastWeek = new BitSet(weeks.size());
 		int startCourseWeek = 0;
 		for (int i = 1; i < 53; i++) {
 			final BitSet currentWeek = new BitSet(weeks.size());
+			boolean enabledCurrentWeek = false;
 			for (int j = 0; j < weeks.size(); j++) {
-				final Long week = weeks.get(j);
-				currentWeek.set(j, ((1L << i) & week) != 0);
+				if (cancelWeek != null && ((1L << i) & cancelWeek) != 0) {
+					currentWeek.set(j, false);
+				} else {
+					final Long week = weeks.get(j);
+					currentWeek.set(j, ((1L << i) & week) != 0);
+				}
+				enabledCurrentWeek = enabledCurrentWeek | currentWeek.get(j);
 			}
 			if (!currentWeek.equals(lastWeek)) {
 				if (startCourseWeek > 0) {
 					courses.add(generateCourse(startCourseWeek, i - 1, lastWeek, items, currentEntity));
 				}
-				startCourseWeek = i;
+				startCourseWeek = enabledCurrentWeek ? i : 0;
 				lastWeek = currentWeek;
 			}
 		}
-		log.info(courses.encode());
+		if (cancelWeek != null) {
+			log.info(courses.encode());
+		}
 	}
 
 	private JsonObject generateCourse(int startCourseWeek, int endCourseWeek, BitSet enabledItems, List<JsonObject> items, JsonObject entity) {
@@ -156,56 +185,42 @@ public class EDTImporter {
 		final int startPlace = Integer.parseInt(entity.getString("NumeroPlaceDebut"));
 		final int placesNumber = Integer.parseInt(entity.getString("NombrePlaces"));
 		final DateTime startDate = startDateWeek1.plusWeeks(startCourseWeek - 1)
-				.plusDays(day - 1).plusMinutes((startPlace - 1) * slotDuration);
+				.plusDays(day - 1).plusMinutes(startPlace * slotDuration);
 		final JsonObject c = new JsonObject()
 				.putString("subjectCode", subjects.get(entity.getArray("Matiere").<JsonObject>get(0).getString("Ident")).getString("Code"))
 				.putString("startDate", startDate.toString())
 				.putString("endDate", startDate.plusWeeks(endCourseWeek - startCourseWeek)
 						.plusMinutes(placesNumber * slotDuration).toString());
 
-		return c;
-	}
+		for (int i = 0; i < enabledItems.size(); i++) {
+			if (enabledItems.get(i)) {
+				JsonObject item = items.get(i);
+				switch (item.getString("itemType")) {
+					case "Professeur":
 
-	public void initSchoolYear(JsonObject schoolYear) {
-//		final DateFormat df = new SimpleDateFormat("yyyy/MM/dd");
-		startDateWeek1 = DateTime.parse(schoolYear.getString("DatePremierJourSemaine1"));
-//		dayOfWeekMapping[0] = startDateWeek1.getDayOfWeek();
-//		for (int i = 1; i < dayOfWeekMapping.length; i++) {
-//			int lastDay = dayOfWeekMapping[i - 1];
-//			if (lastDay == 7) {
-//				dayOfWeekMapping[i] = 0;
-//			} else {
-//				dayOfWeekMapping[i] = lastDay + 1;
-//			}
-//		}
+						break;
+					case "Classe":
 
-//		startDateWeek1 = df.parse(schoolYear.getString("DatePremierJourSemaine1"));
-//		Calendar c = Calendar.getInstance();
-//		c.setTime(startDateWeek1);
-//		dayOfWeekMapping[0] = c.get(Calendar.DAY_OF_WEEK);
-//		for (int i = 1; i < dayOfWeekMapping.length; i++) {
-//			int lastDay = dayOfWeekMapping[i - 1];
-//			if (lastDay == 7) {
-//				dayOfWeekMapping[i] = 0;
-//			} else {
-//				dayOfWeekMapping[i] = lastDay + 1;
-//			}
-//		}
-	}
+						break;
+					case "Groupe":
 
-	public void initSchedule(JsonObject currentEntity) {
-		slotDuration = Integer.parseInt(currentEntity.getString("DureePlace"));
-		for (Object o : currentEntity.getArray("Place")) {
-			if (!(o instanceof JsonObject) || !"0".equals(((JsonObject) o).getString("Numero"))) continue;
-			String[] startHour = ((JsonObject) o).getString("LibelleHeureDebut").split(":");
-			if (startHour.length == 3) {
-				startDateWeek1 = startDateWeek1
-						.plusHours(Integer.parseInt(startHour[0]))
-						.plusMinutes(Integer.parseInt(startHour[1]))
-						.plusSeconds(Integer.parseInt(startHour[2]));
-				break;
+						break;
+					case "PartieDeClasse":
+
+						break;
+					case "Materiel":
+
+						break;
+					case "Salle":
+
+						break;
+					case "Personnel":
+
+						break;
+				}
 			}
 		}
+		return c;
 	}
 
 
@@ -214,32 +229,4 @@ public class EDTImporter {
 //	{"Jour":"3","NumeroPlaceDebut":"4","NombrePlaces":"2","Annuel":"1","Matiere":[{"Ident":"198"}],"Professeur":[{"Ident":"31","Semaines":"70317002848764"}],"Classe":[{"Ident":"22","Semaines":"70317002848764"}],"Salle":[{"Ident":"16","Semaines":"70317002848764"}]}
 //	{"Jour":"1","NumeroPlaceDebut":"16","NombrePlaces":"4","Annuel":"1","Matiere":[{"Ident":"199"}],"Classe":[{"Ident":"32","Semaines":"67911820638716"}],"Salle":[{"Ident":"52","Semaines":"67911820638716"}]}
 
-
-//	int startCourseWeek = 0;
-//	for (int i = 1; i < 53; i++) {
-//		final BitSet currentWeek = new BitSet(weeks.size());
-//		for (int j = 0; j < weeks.size(); j++) {
-//			final Long week = weeks.get(j);
-//			currentWeek.set(j, ((1L << i) & week) != 0);
-//		}
-//		if (!currentWeek.equals(lastWeek)) {
-//			if (course != null) {
-//				closeCourse(i - 1, lastWeek, items, course);
-//				courses.add(course);
-//			}
-//			course = initCourse(i, currentEntity);
-//			lastWeek = currentWeek;
-//		}
-//	}
-//}
-//
-//	private void closeCourse(int i, BitSet enabledItems, List<JsonObject> items, JsonObject course) {
-//
-//	}
-//
-//	private JsonObject initCourse(int i, JsonObject currentEntity) {
-//		final JsonObject c = new JsonObject();
-//
-//		return c;
-//	}
 }

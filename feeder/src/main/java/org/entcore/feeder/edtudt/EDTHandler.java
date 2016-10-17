@@ -93,7 +93,9 @@ public class EDTHandler extends DefaultHandler {
 		currentTag = "";
 		if (localName.equals(currentEntityType)) {
 			currentEntityType = "";
-			log.info(currentEntity.encode());
+//			if (currentEntity.containsField("SemainesAnnulation")) {
+//				log.info(currentEntity.encode());
+//			}
 			switch (localName) {
 				case "Cours" :
 					edtImporter.addCourse(currentEntity);
@@ -115,6 +117,9 @@ public class EDTHandler extends DefaultHandler {
 					break;
 				case "Salle" :
 					edtImporter.addRoom(currentEntity);
+					break;
+				case "Personnel":
+					edtImporter.addPersonnel(currentEntity);
 					break;
 				case "GrilleHoraire":
 					edtImporter.initSchedule(currentEntity);
