@@ -9,20 +9,20 @@
 		<thead>
     		<tr>
     			<th class="icon"><input type="checkbox" ng-model="selection.selectAll" ng-change="switchSelectAll()" /></th>
-                <th class="icon" ng-click="setSort(folders.current, sortBy.systemFolder)"></th>
-    			<th class="user" ng-click="setSort(folders.current, sortBy.name)"><i18n>from.to</i18n></th>
-    			<th class="content" ng-click="setSort(folders.current, sortBy.subject)"><i18n>subject</i18n></th>
+                <th class="icon" ng-click="setSort(conversation.currentFolder, sortBy.systemFolder)"></th>
+    			<th class="user" ng-click="setSort(conversation.currentFolder, sortBy.name)"><i18n>from.to</i18n></th>
+    			<th class="content" ng-click="setSort(conversation.currentFolder, sortBy.subject)"><i18n>subject</i18n></th>
 				<th class="icon"></th>
-    			<th class="date" ng-click="setSort(folders.current, sortBy.date)"><i18n>date</i18n></th>
+    			<th class="date" ng-click="setSort(conversation.currentFolder, sortBy.date)"><i18n>date</i18n></th>
     		</tr>
 		</thead>
 		<tbody>
-    		<tr ng-if="folders.current.mails.empty()">
+    		<tr ng-if="conversation.currentFolder.mails.empty()">
     			<td colspan="6">
     				<i18n>folder.empty</i18n>
     			</td>
     		</tr>
-    		<tr ng-repeat="mail in folders.current.mails.all | orderBy : folders.current.sort : folders.current.reverse"
+    		<tr ng-repeat="mail in conversation.currentFolder.mails.all | orderBy : conversation.currentFolder.sort : conversation.currentFolder.reverse"
 			    ng-class="{ checked: mail.selected }" dragstart="drag(mail, $originalEvent)">
     			<td class="icon"><input type="checkbox" ng-model="mail.selected" /></td>
                 <td class="icon sysmail"><i class="[[matchSystemIcon(mail)]]" tooltip="[[matchSystemIcon(mail)]]"></i></td>

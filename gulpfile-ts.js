@@ -9,7 +9,7 @@ var revReplace = require("gulp-rev-replace");
 var clean = require('gulp-clean');
 var sourcemaps = require('gulp-sourcemaps');
 
-var apps = ['auth'];
+var apps = ['auth', 'conversation'];
 
 function compileTs(){
     var stream = [];
