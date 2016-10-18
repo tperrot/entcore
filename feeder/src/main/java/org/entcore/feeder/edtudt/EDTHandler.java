@@ -37,9 +37,11 @@ public class EDTHandler extends DefaultHandler {
 	private JsonObject currentEntity;
 	private final EDTImporter edtImporter;
 	private boolean firstCours = true;
+	private final boolean persEducNatOnly;
 
-	public EDTHandler(EDTImporter edtImporter) {
+	public EDTHandler(EDTImporter edtImporter, boolean persEducNatOnly) {
 		this.edtImporter = edtImporter;
+		this.persEducNatOnly = persEducNatOnly;
 	}
 
 	@Override
@@ -56,26 +58,39 @@ public class EDTHandler extends DefaultHandler {
 			return;
 		}
 
-		switch (localName) {
-			case "Cours" :
-				if (firstCours) {
-					firstCours = false;
-				} else {
+		if (persEducNatOnly) {
+			switch (localName) {
+				case "Professeur":
+				case "Personnel":
+				case "Cours":
+				case "Absence":
 					currentEntityType = localName;
 					currentEntity = o;
-				}
-				break;
-			case "Matiere" :
-			case "Eleve" :
-			case "Professeur" :
-			case "Classe" :
-			case "Groupe" :
-			case "Salle" :
-			case "GrilleHoraire" :
-			case "AnneeScolaire" :
-				currentEntityType = localName;
-				currentEntity = o;
-				break;
+					break;
+			}
+		} else {
+			switch (localName) {
+				case "Cours":
+					if (firstCours) {
+						firstCours = false;
+					} else {
+						currentEntityType = localName;
+						currentEntity = o;
+					}
+					break;
+				case "Matiere":
+				case "Eleve":
+//				case "Professeur":
+//				case "Personnel":
+				case "Classe":
+				case "Groupe":
+				case "Salle":
+				case "GrilleHoraire":
+				case "AnneeScolaire":
+					currentEntityType = localName;
+					currentEntity = o;
+					break;
+			}
 		}
 	}
 
@@ -96,37 +111,51 @@ public class EDTHandler extends DefaultHandler {
 //			if (currentEntity.containsField("SemainesAnnulation")) {
 //				log.info(currentEntity.encode());
 //			}
-			switch (localName) {
-				case "Cours" :
-					edtImporter.addCourse(currentEntity);
-					break;
-				case "Matiere" :
-					edtImporter.addSubject(currentEntity);
-					break;
-				case "Eleve" :
-					edtImporter.addEleve(currentEntity);
-					break;
-				case "Professeur" :
-					edtImporter.addProfesseur(currentEntity);
-					break;
-				case "Classe" :
-					edtImporter.addClasse(currentEntity);
-					break;
-				case "Groupe" :
-					edtImporter.addGroup(currentEntity);
-					break;
-				case "Salle" :
-					edtImporter.addRoom(currentEntity);
-					break;
-				case "Personnel":
-					edtImporter.addPersonnel(currentEntity);
-					break;
-				case "GrilleHoraire":
-					edtImporter.initSchedule(currentEntity);
-					break;
-				case "AnneeScolaire":
-					edtImporter.initSchoolYear(currentEntity);
-					break;
+			if (persEducNatOnly) {
+				switch (localName) {
+					case "Professeur":
+						edtImporter.addProfesseur(currentEntity);
+						break;
+					case "Personnel":
+						edtImporter.addPersonnel(currentEntity);
+						break;
+					case "Cours":
+					case "Absence":
+						break;
+				}
+			} else {
+				switch (localName) {
+					case "Cours":
+						edtImporter.addCourse(currentEntity);
+						break;
+					case "Matiere":
+						edtImporter.addSubject(currentEntity);
+						break;
+					case "Eleve":
+						edtImporter.addEleve(currentEntity);
+						break;
+//					case "Professeur":
+//						edtImporter.addProfesseur(currentEntity);
+//						break;
+					case "Classe":
+						edtImporter.addClasse(currentEntity);
+						break;
+					case "Groupe":
+						edtImporter.addGroup(currentEntity);
+						break;
+					case "Salle":
+						edtImporter.addRoom(currentEntity);
+						break;
+//					case "Personnel":
+//						edtImporter.addPersonnel(currentEntity);
+//						break;
+					case "GrilleHoraire":
+						edtImporter.initSchedule(currentEntity);
+						break;
+					case "AnneeScolaire":
+						edtImporter.initSchoolYear(currentEntity);
+						break;
+				}
 			}
 			currentEntity = null;
 		}

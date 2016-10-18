@@ -38,6 +38,8 @@ import org.entcore.feeder.export.Exporter;
 import org.entcore.feeder.export.eliot.EliotExporter;
 import org.entcore.feeder.utils.*;
 import org.vertx.java.busmods.BusModBase;
+import org.vertx.java.core.AsyncResult;
+import org.vertx.java.core.AsyncResultHandler;
 import org.vertx.java.core.Handler;
 import org.vertx.java.core.VoidHandler;
 import org.vertx.java.core.eventbus.Message;
@@ -241,7 +243,17 @@ public class Feeder extends BusModBase implements Handler<Message<JsonObject>> {
 				break;
 			case "edt":
 				try {
-					new EDTImporter(new EDTUtils(vertx, "/home/dboissin/Docs/EDT - UDT/pronote.pk8", "NEO-Open"), null).parse();
+					new EDTImporter(new EDTUtils(vertx, "/home/dboissin/Docs/EDT - UDT/pronote.pk8", "NEO-Open"), "1234567H", "fr").launch(new AsyncResultHandler<Report>() {
+						@Override
+						public void handle(AsyncResult<Report> event) {
+							if(event.succeeded()) {
+								logger.info("edt success");
+							} else {
+								logger.info("edt fail", event.cause());
+							}
+							logger.info("end");
+						}
+					});
 				} catch (Exception e) {
 					logger.error(e.getMessage(), e);
 				}
