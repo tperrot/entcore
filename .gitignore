@@ -20,6 +20,10 @@ test-tmp
 *.class
 mods
 */mods
+*/temp
+*/dist
+*/ts/entcore
+*/template/entcore
 data
 developer.id
 *.mod.json
