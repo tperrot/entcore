@@ -20,6 +20,7 @@
 package org.entcore.feeder;
 
 import fr.wseduc.cron.CronTrigger;
+import fr.wseduc.mongodb.MongoDb;
 import fr.wseduc.webutils.I18n;
 import org.entcore.common.appregistry.ApplicationUtils;
 import org.entcore.common.events.EventStore;
@@ -78,6 +79,7 @@ public class Feeder extends BusModBase implements Handler<Message<JsonObject>> {
 			node = "";
 		}
 		neo4j = new Neo4j(vertx.eventBus(), node + neo4jAddress);
+		MongoDb.getInstance().init(vertx.eventBus(), node + "wse.mongodb.persistor");
 		TransactionManager.getInstance().setNeo4j(neo4j);
 		EventStoreFactory factory = EventStoreFactory.getFactory();
 		factory.setVertx(vertx);

@@ -85,6 +85,7 @@ public class EDTHandler extends DefaultHandler {
 				case "Classe":
 				case "Groupe":
 				case "Salle":
+				case "Materiel":
 				case "GrilleHoraire":
 				case "AnneeScolaire":
 					currentEntityType = localName;
@@ -145,6 +146,9 @@ public class EDTHandler extends DefaultHandler {
 						break;
 					case "Salle":
 						edtImporter.addRoom(currentEntity);
+						break;
+					case "Materiel":
+						edtImporter.addEquipment(currentEntity);
 						break;
 //					case "Personnel":
 //						edtImporter.addPersonnel(currentEntity);

@@ -19,10 +19,12 @@
 
 package org.entcore.feeder.edtudt;
 
+import fr.wseduc.mongodb.MongoDb;
 import fr.wseduc.webutils.DefaultAsyncResult;
 import org.entcore.feeder.dictionary.users.PersEducNat;
 import org.entcore.feeder.exceptions.TransactionException;
 import org.entcore.feeder.exceptions.ValidationException;
+import org.entcore.feeder.utils.JsonUtil;
 import org.entcore.feeder.utils.Report;
 import org.entcore.feeder.utils.TransactionHelper;
 import org.entcore.feeder.utils.TransactionManager;
@@ -40,8 +42,13 @@ import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.XMLReaderFactory;
 
 import java.io.StringReader;
+import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import static fr.wseduc.webutils.Utils.getOrElse;
+import static fr.wseduc.webutils.Utils.isEmpty;
 import static fr.wseduc.webutils.Utils.isNotEmpty;
 import static org.entcore.feeder.dictionary.structures.DefaultProfiles.PERSONNEL_PROFILE_EXTERNAL_ID;
 import static org.entcore.feeder.dictionary.structures.DefaultProfiles.TEACHER_PROFILE_EXTERNAL_ID;
@@ -54,29 +61,58 @@ public class EDTImporter {
 			"WHERE head(u.profiles) = {profile} AND LOWER(u.lastName) = {lastName} AND LOWER(u.firstName) = {firstName} " +
 			"SET u.IDPN = {IDPN} " +
 			"RETURN DISTINCT u.id as id, u.IDPN as IDPN, head(u.profiles) as profile";
+	private static final String UNKNOWN_CLASSES =
+			"MATCH (s:Structure {UAI : {UAI}})<-[:BELONGS]-(c:Class) " +
+			"WHERE c.name = {className} " +
+			"WITH count(*) AS exists, s " +
+			"WHERE exists = 0 " +
+			"MERGE (cm:ClassesMapping { UAI : {UAI}}) " +
+			"SET cm.unknownClasses = coalesce(FILTER(cn IN cm.unknownClasses WHERE cn <> {className}), []) + {className} " +
+			"MERGE (s)<-[:MAPPING]-(cm) ";
+	private static final String CREATE_GROUPS =
+			"MATCH (s:Structure {externalId : {structureExternalId}}) " +
+			"MERGE (fg:FunctionalGroup {externalId:{externalId}}) " +
+			"ON CREATE SET fg.name = {name}, fg.id = {id} " +
+			"MERGE (fg)-[:DEPENDS]->(s) ";
+	private static final String CREATE_SUBJECT =
+			"MATCH (s:Structure {externalId : {structureExternalId}}) " +
+			"MERGE (sub:Subject {externalId : {externalId}}) " +
+			"ON CREATE SET sub.code = {Code}, sub.label = {Libelle}, sub.id = {id} " +
+			"MERGE (sub)-[:SUBJECT]->(s) ";
 	public static final String IDENT = "Ident";
 	public static final String IDPN = "IDPN";
 	public static final String EDT = "EDT";
-	private final List<String> ignoreAttributes = Arrays.asList("Etiquette", "Periode");
+	public static final String COURSES = "courses";
+	private final List<String> ignoreAttributes = Arrays.asList("Etiquette", "Periode", "PartieDeClasse");
 	private final EDTUtils edtUtils;
 	private final String UAI;
 	private final Report report;
 	private final JsonArray structure = new JsonArray();
+	private String structureExternalId;
+	private String structureId;
+	private long importTimestamp;
 	private final Map<String, String> teachersMapping = new HashMap<>();
 	private final Map<String, JsonObject> notFoundPersEducNat = new HashMap<>();
 //	private final Map<String, String> personnelsMapping = new HashMap<>();
+	private final Map<String, String> equipments = new HashMap<>();
 	private final Map<String, String> rooms = new HashMap<>();
 	private final Map<String, String> teachers = new HashMap<>();
 	private final Map<String, String> personnels = new HashMap<>();
 	private final Map<String, String> students = new HashMap<>();
-	private final Map<String, JsonObject> subjects = new HashMap<>();
+	private final Map<String, String> subjects = new HashMap<>();
 	private final Map<String, JsonObject> classes = new HashMap<>();
+	private final Map<String, JsonObject> subClasses = new HashMap<>();
 	private final Map<String, JsonObject> groups = new HashMap<>();
+	private JsonObject classesMapping;
+	private final Map<String, String> subjectsMapping = new HashMap<>();
 	private DateTime startDateWeek1;
 	private int slotDuration; // minutes
 
 	private PersEducNat persEducNat;
 	private TransactionHelper txEdt;
+	private final MongoDb mongoDb = MongoDb.getInstance();
+	private final AtomicInteger countMongoQueries = new AtomicInteger(0);
+	private AsyncResultHandler<Report> endHandler;
 
 
 	public EDTImporter(EDTUtils edtUtils, String uai, String acceptLanguage) {
@@ -86,20 +122,25 @@ public class EDTImporter {
 	}
 
 	public void init(final AsyncResultHandler<Void> handler) throws TransactionException {
-		final String externalIdFromUAI = "MATCH (s:Structure {UAI : {UAI}}) return s.externalId as externalId";
+		importTimestamp = System.currentTimeMillis();
+		final String externalIdFromUAI = "MATCH (s:Structure {UAI : {UAI}}) return s.externalId as externalId, s.id as id";
 		final String getUsersByProfile =
 				"MATCH (:Structure {UAI : {UAI}})<-[:DEPENDS]-(:ProfileGroup)<-[:IN]-(u:User) " +
 				"WHERE head(u.profiles) = {profile} AND NOT(u.IDPN IS NULL) AND NOT(u.externalId IS NULL) " +
 				"RETURN DISTINCT u.id as id, u.IDPN as IDPN, head(u.profiles) as profile";
+		final String classesMappingQuery = "MATCH (s:Structure {UAI : {UAI}})<-[:MAPPING]-(cm:ClassesMapping) return cm";
+		final String subjectsMappingQuery = "MATCH (s:Structure {UAI : {UAI}})<-[:SUBJECT]-(sub:Subject) return sub.code as code, sub.id as id";
 		final TransactionHelper tx = TransactionManager.getTransaction();
 		tx.add(getUsersByProfile, new JsonObject().putString("UAI", UAI).putString("profile", "Teacher"));
 		//tx.add(getUsersByProfile, new JsonObject().putString("UAI", UAI).putString("profile", "Personnel"));
 		tx.add(externalIdFromUAI, new JsonObject().putString("UAI", UAI));
+		tx.add(classesMappingQuery, new JsonObject().putString("UAI", UAI));
+		tx.add(subjectsMappingQuery, new JsonObject().putString("UAI", UAI));
 		tx.commit(new Handler<Message<JsonObject>>() {
 			@Override
 			public void handle(Message<JsonObject> event) {
 				final JsonArray res = event.body().getArray("results");
-				if ("ok".equals(event.body().getString("status")) && res != null && res.size() == 2) {
+				if ("ok".equals(event.body().getString("status")) && res != null && res.size() == 4) {
 					try {
 						for (Object o : res.<JsonArray>get(0)) {
 							if (o instanceof JsonObject) {
@@ -116,10 +157,25 @@ public class EDTImporter {
 //						JsonArray a = res.get(2);
 						JsonArray a = res.get(1);
 						if (a != null && a.size() == 1) {
-							structure.add(a.<JsonObject>get(0).getString("externalId"));
+							structureExternalId = a.<JsonObject>get(0).getString("externalId");
+							structure.add(structureExternalId);
+							structureId = a.<JsonObject>get(0).getString("id");
 						} else {
 							handler.handle(new DefaultAsyncResult<Void>(new ValidationException("invalid.uai")));
 							return;
+						}
+						JsonArray cm = res.get(2);
+						if (cm != null && cm.size() == 1) {
+							classesMapping = cm.get(0);
+						}
+						JsonArray subjects = res.get(3);
+						if (subjects != null && subjects.size() > 0) {
+							for (Object o : subjects) {
+								if (o instanceof JsonObject) {
+									final  JsonObject s = (JsonObject) o;
+									subjectsMapping.put(s.getString("code"), s.getString("id"));
+								}
+							}
 						}
 						txEdt = TransactionManager.getTransaction();
 						persEducNat = new PersEducNat(txEdt, report, EDT);
@@ -154,6 +210,16 @@ public class EDTImporter {
 										try {
 											txEdt = TransactionManager.getTransaction();
 											parse(content, false);
+											txEdt.commit(new Handler<Message<JsonObject>>() {
+												@Override
+												public void handle(Message<JsonObject> event) {
+													if (!"ok".equals(event.body().getString("status"))) {
+														report.addError("error.commit.edt.transaction");
+													}
+													endHandler = handler;
+													end();
+												}
+											});
 										} catch (Exception e) {
 											handler.handle(new DefaultAsyncResult<Report>(e));
 										}
@@ -171,6 +237,24 @@ public class EDTImporter {
 				}
 			}
 		});
+	}
+
+	private void end() {
+		if (endHandler != null && countMongoQueries.get() == 0) {
+			mongoDb.update(COURSES, new JsonObject().putString("structureId", structureId)
+							.putObject("deleted", new JsonObject().putBoolean("$exists", false))
+							.putObject("modified", new JsonObject().putNumber("$ne", importTimestamp)),
+					new JsonObject().putObject("$set", new JsonObject().putNumber("deleted", importTimestamp)), false, true,
+					new Handler<Message<JsonObject>>() {
+						@Override
+						public void handle(Message<JsonObject> event) {
+							if (!"ok".equals(event.body().getString("status"))) {
+								report.addError("error.set.deleted.courses");
+							}
+							endHandler.handle(new DefaultAsyncResult<Report>(report));
+						}
+					});
+		}
 	}
 
 	public void parse(String content, boolean persEducNatOnly) throws Exception {
@@ -202,25 +286,44 @@ public class EDTImporter {
 	}
 
 	public void addRoom(JsonObject currentEntity) {
-		// TODO valid entity
-		rooms.put(currentEntity.getString("Ident"), currentEntity.getString("Nom"));
+		rooms.put(currentEntity.getString(IDENT), currentEntity.getString("Nom"));
+	}
+
+
+	public void addEquipment(JsonObject currentEntity) {
+		equipments.put(currentEntity.getString(IDENT), currentEntity.getString("Nom"));
 	}
 
 	public void addGroup(JsonObject currentEntity) {
-		// TODO valid entity
 		final String id = currentEntity.getString(IDENT);
 		groups.put(id, currentEntity);
+		final String name = currentEntity.getString("Nom");
+		txEdt.add(CREATE_GROUPS, new JsonObject().putString("structureExternalId", structureExternalId).putString("name", name)
+				.putString("externalId", structureExternalId + "$" + name).putString("id", UUID.randomUUID().toString()));
 	}
 
 	public void addClasse(JsonObject currentEntity) {
-		// TODO valid entity
 		final String id = currentEntity.getString(IDENT);
 		classes.put(id, currentEntity);
+		final JsonArray pcs = currentEntity.getArray("PartieDeClasse");
+		final String ocn = currentEntity.getString("Nom");
+		final String className = (classesMapping != null) ? getOrElse(classesMapping.getString(ocn), ocn, false) : ocn;
+		currentEntity.putString("className", className);
+		if (pcs != null) {
+			for (Object o : pcs) {
+				if (o instanceof JsonObject) {
+					final String pcIdent = ((JsonObject) o).getString(IDENT);
+					subClasses.put(pcIdent, ((JsonObject) o).putString("className", className));
+				}
+			}
+		}
+		txEdt.add(UNKNOWN_CLASSES, new JsonObject().putString("UAI", UAI).putString("className", className));
 	}
 
 	public void addProfesseur(JsonObject currentEntity) {
+		// TODO manage users without IDPN
 		final String id = currentEntity.getString(IDENT);
-		final String idPronote = structure.<String>get(0) + "$" + currentEntity.getString(IDPN);
+		final String idPronote = structureExternalId + "$" + currentEntity.getString(IDPN);
 		final String teacherId = teachersMapping.get(idPronote);
 		if (teacherId != null) {
 			teachers.put(id, teacherId);
@@ -231,7 +334,7 @@ public class EDTImporter {
 
 	public void addPersonnel(JsonObject currentEntity) {
 		final String id = currentEntity.getString(IDENT);
-		final String idPronote = structure.<String>get(0) + "$" + id; // fake pronote id
+		final String idPronote = structureExternalId + "$" + id; // fake pronote id
 //		final String personnelId = personnelsMapping.get(idPronote);
 //		if (personnelId != null) {
 //			personnels.put(id, personnelId);
@@ -340,15 +443,20 @@ public class EDTImporter {
 	}
 
 	public void addSubject(JsonObject currentEntity) {
-		// TODO valid entity
 		final String id = currentEntity.getString(IDENT);
-		subjects.put(id, currentEntity);
+		String subjectId = subjectsMapping.get(currentEntity.getString("Code"));
+		if (isEmpty(subjectId)) {
+			final String externalId = structureExternalId + "$" + currentEntity.getString("Code");
+			subjectId = UUID.randomUUID().toString();
+			txEdt.add(CREATE_SUBJECT, currentEntity.putString("structureExternalId", structureExternalId)
+					.putString("externalId", externalId).putString("id", subjectId));
+		}
+		subjects.put(id, subjectId);
 	}
 
 	public void addCourse(JsonObject currentEntity) {
 		final List<Long> weeks = new ArrayList<>();
 		final List<JsonObject> items = new ArrayList<>();
-		final JsonArray courses = new JsonArray();
 
 		for (String attr: currentEntity.getFieldNames()) {
 			if (!ignoreAttributes.contains(attr) && currentEntity.getValue(attr) instanceof JsonArray) {
@@ -386,15 +494,31 @@ public class EDTImporter {
 			}
 			if (!currentWeek.equals(lastWeek)) {
 				if (startCourseWeek > 0) {
-					courses.add(generateCourse(startCourseWeek, i - 1, lastWeek, items, currentEntity));
+					persistCourse(generateCourse(startCourseWeek, i - 1, lastWeek, items, currentEntity));
 				}
 				startCourseWeek = enabledCurrentWeek ? i : 0;
 				lastWeek = currentWeek;
 			}
 		}
-		if (cancelWeek != null) {
-			log.info(courses.encode());
-		}
+	}
+
+	private void persistCourse(JsonObject object) {
+		// TODO add two phase commit
+		countMongoQueries.incrementAndGet();
+		JsonObject m = new JsonObject().putObject("$set", object)
+				.putObject("$setOnInsert", new JsonObject().putNumber("created", importTimestamp));
+		mongoDb.update(COURSES, new JsonObject().putString("_id", object.getString("_id")), m, true, false,
+				new Handler<Message<JsonObject>>() {
+			@Override
+			public void handle(Message<JsonObject> event) {
+				if (!"ok".equals(event.body().getString("status"))) {
+					report.addError("error.persist.course");
+				}
+				if (countMongoQueries.decrementAndGet() == 0) {
+					end();
+				}
+			}
+		});
 	}
 
 	private JsonObject generateCourse(int startCourseWeek, int endCourseWeek, BitSet enabledItems, List<JsonObject> items, JsonObject entity) {
@@ -403,44 +527,79 @@ public class EDTImporter {
 		final int placesNumber = Integer.parseInt(entity.getString("NombrePlaces"));
 		final DateTime startDate = startDateWeek1.plusWeeks(startCourseWeek - 1)
 				.plusDays(day - 1).plusMinutes(startPlace * slotDuration);
-		final JsonArray teachersArray = new JsonArray();
-		final JsonArray personnelsArray = new JsonArray();
 		final JsonObject c = new JsonObject()
-				.putString("subjectCode", subjects.get(entity.getArray("Matiere").<JsonObject>get(0).getString("Ident")).getString("Code"))
+				.putString("structureId", structureId)
+				.putString("subjectId", subjects.get(entity.getArray("Matiere").<JsonObject>get(0).getString(IDENT)))
 				.putString("startDate", startDate.toString())
 				.putString("endDate", startDate.plusWeeks(endCourseWeek - startCourseWeek)
 						.plusMinutes(placesNumber * slotDuration).toString())
-				.putArray("teacherIds", teachersArray)
-				.putArray("personnelIds", personnelsArray);
+				.putNumber("dayOfWeek", startDate.getDayOfWeek());
 
 		for (int i = 0; i < enabledItems.size(); i++) {
 			if (enabledItems.get(i)) {
-				JsonObject item = items.get(i);
+				final JsonObject item = items.get(i);
+				final String ident = item.getString(IDENT);
 				switch (item.getString("itemType")) {
 					case "Professeur":
-						teachersArray.add(teachers.get(item.getString(IDENT)));
+						JsonArray teachersArray = c.getArray("teacherIds");
+						if (teachersArray == null) {
+							teachersArray = new JsonArray();
+							c.putArray("teacherIds", teachersArray);
+						}
+						teachersArray.add(personnels.get(ident));
 						break;
 					case "Classe":
-
+						JsonArray classesArray = c.getArray("classes");
+						if (classesArray == null) {
+							classesArray = new JsonArray();
+							c.putArray("classes", classesArray);
+						}
+						classesArray.add(classes.get(ident).getString("className"));
 						break;
 					case "Groupe":
-
+						JsonArray groupsArray = c.getArray("groups");
+						if (groupsArray == null) {
+							groupsArray = new JsonArray();
+							c.putArray("groups", groupsArray);
+						}
+						groupsArray.add(groups.get(ident).getString("Nom"));
 						break;
-					case "PartieDeClasse":
-
-						break;
+//					case "PartieDeClasse":
+//
+//						break;
 					case "Materiel":
-
+						JsonArray equipmentsArray = c.getArray("equipmentLabels");
+						if (equipmentsArray == null) {
+							equipmentsArray = new JsonArray();
+							c.putArray("equipmentLabels", equipmentsArray);
+						}
+						equipmentsArray.add(equipments.get(ident));
 						break;
 					case "Salle":
-
+						JsonArray roomsArray = c.getArray("roomLabels");
+						if (roomsArray == null) {
+							roomsArray = new JsonArray();
+							c.putArray("roomLabels", roomsArray);
+						}
+						roomsArray.add(rooms.get(ident));
 						break;
 					case "Personnel":
-						personnelsArray.add(personnels.get(item.getString(IDENT)));
+						JsonArray personnelsArray = c.getArray("personnelIds");
+						if (personnelsArray == null) {
+							personnelsArray = new JsonArray();
+							c.putArray("personnelIds", personnelsArray);
+						}
+						personnelsArray.add(personnels.get(ident));
 						break;
 				}
 			}
 		}
+		try {
+			c.putString("_id", JsonUtil.checksum(c));
+		} catch (NoSuchAlgorithmException e) {
+			log.error("Error generating course checksum", e);
+		}
+		c.putNumber("modified", importTimestamp);
 		return c;
 	}
 
