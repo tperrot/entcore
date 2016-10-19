@@ -79,6 +79,17 @@ public class EDTImporter {
 			"MERGE (sub:Subject {externalId : {externalId}}) " +
 			"ON CREATE SET sub.code = {Code}, sub.label = {Libelle}, sub.id = {id} " +
 			"MERGE (sub)-[:SUBJECT]->(s) ";
+	private static final String STUDENTS_TO_GROUPS =
+			"MATCH (u:User {attachmentId = {idSconet}}), (fg:FunctionalGroup {externalId:{externalId}}) " +
+			"MERGE u-[:IN {source:{source}, inDate:{inDate}, outDate:{outDate}}]->fg ";
+	private static final String PERSEDUCNAT_TO_GROUPS =
+			"MATCH (u:User {id : {id}}), (fg:FunctionalGroup) " +
+			"WHERE fg.externalId IN {groups} " +
+			"MERGE u-[:IN {source:{source}, outDate:{outDate}}]->fg ";
+	private static final String DELETE_OLD_RELATIONSHIPS =
+			"MATCH (:Structure {id:{id}})<-[:DEPENDS]-(fg:FunctionalGroup)<-[r:IN]-(:User) " +
+			"WHERE r.source = {source} AND HAS(r.outDate) AND r.outDate < {now} " +
+			"DELETE r ";
 	public static final String IDENT = "Ident";
 	public static final String IDPN = "IDPN";
 	public static final String EDT = "EDT";
@@ -210,6 +221,9 @@ public class EDTImporter {
 										try {
 											txEdt = TransactionManager.getTransaction();
 											parse(content, false);
+											txEdt.add(DELETE_OLD_RELATIONSHIPS, new JsonObject()
+													.putString("id", structureId).putString("source", EDT)
+													.putNumber("now", System.currentTimeMillis()));
 											txEdt.commit(new Handler<Message<JsonObject>>() {
 												@Override
 												public void handle(Message<JsonObject> event) {
@@ -297,9 +311,32 @@ public class EDTImporter {
 	public void addGroup(JsonObject currentEntity) {
 		final String id = currentEntity.getString(IDENT);
 		groups.put(id, currentEntity);
+		final JsonArray classes = currentEntity.getArray("Classe");
+		final JsonArray pcs = currentEntity.getArray("PartieDeClasse");
+		classInGroups(id, classes, this.classes);
+		classInGroups(id, pcs, this.subClasses);
+
 		final String name = currentEntity.getString("Nom");
 		txEdt.add(CREATE_GROUPS, new JsonObject().putString("structureExternalId", structureExternalId).putString("name", name)
 				.putString("externalId", structureExternalId + "$" + name).putString("id", UUID.randomUUID().toString()));
+	}
+
+	private void classInGroups(String id, JsonArray classes, Map<String, JsonObject> ref) {
+		if (classes != null) {
+			for (Object o : classes) {
+				if (o instanceof JsonObject) {
+					final JsonObject j = ref.get(((JsonObject) o).getString(IDENT));
+					if (j != null) {
+						JsonArray groups = j.getArray("groups");
+						if (groups == null) {
+							groups = new JsonArray();
+							j.putArray("groups", groups);
+						}
+						groups.add(id);
+					}
+				}
+			}
+		}
 	}
 
 	public void addClasse(JsonObject currentEntity) {
@@ -437,9 +474,46 @@ public class EDTImporter {
 	}
 
 	public void addEleve(JsonObject currentEntity) {
-		// TODO valid entity
-		final String id = currentEntity.getString(IDENT);
-		//students.put(id, currentEntity);
+		final String sconetId = currentEntity.getString("IDSconet");
+		if (isNotEmpty(sconetId)) {
+			final JsonArray classes = currentEntity.getArray("Classe");
+			final JsonArray pcs = currentEntity.getArray("PartieDeClasse");
+			studentToGroups(sconetId, classes, this.classes);
+			studentToGroups(sconetId, pcs, this.subClasses);
+		} else {
+			// TODO :'( il faut trouver autre chose pour faire le rattachement
+		}
+	}
+
+	private void studentToGroups(String sconetId, JsonArray classes, Map<String, JsonObject> ref) {
+		if (classes != null) {
+			for (Object o : classes) {
+				if (o instanceof JsonObject) {
+					final String inDate = ((JsonObject) o).getString("DateEntree");
+					final String outDate = ((JsonObject) o).getString("DateSortie");
+					final String ident = ((JsonObject) o).getString(IDENT);
+					if (inDate == null || ident == null || outDate == null || DateTime.parse(inDate).isAfterNow()) continue;
+					final JsonObject j = ref.get(ident);
+					if (j != null) {
+						JsonArray groups = j.getArray("groups");
+						if (groups != null) {
+							for (Object o2: groups) {
+								JsonObject group = this.groups.get(o2.toString());
+								if (group != null) {
+									String name = group.getString("Nom");
+									txEdt.add(STUDENTS_TO_GROUPS, new JsonObject()
+											.putString("idSconet", sconetId)
+											.putString("externalId", structureExternalId + "$" + name)
+											.putString("source", EDT)
+											.putNumber("inDate", DateTime.parse(inDate).getMillis())
+											.putNumber("outDate", DateTime.parse(outDate).getMillis()));
+								}
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	public void addSubject(JsonObject currentEntity) {
@@ -503,6 +577,7 @@ public class EDTImporter {
 	}
 
 	private void persistCourse(JsonObject object) {
+		persEducNatToGroups(object);
 		// TODO add two phase commit
 		countMongoQueries.incrementAndGet();
 		JsonObject m = new JsonObject().putObject("$set", object)
@@ -519,6 +594,34 @@ public class EDTImporter {
 				}
 			}
 		});
+	}
+
+	private void persEducNatToGroups(JsonObject object) {
+		JsonArray groups = object.getArray("groups");
+		if (groups != null) {
+			JsonArray teacherIds = object.getArray("teacherIds");
+			List<String> ids = new ArrayList<>();
+			if (teacherIds != null) {
+				ids.addAll(teacherIds.toList());
+			}
+			JsonArray personnelIds = object.getArray("personnelIds");
+			if (personnelIds != null) {
+				ids.addAll(personnelIds.toList());
+			}
+			if (!ids.isEmpty()) {
+				JsonArray g = new JsonArray();
+				for (Object o : groups) {
+					g.add(structureExternalId + "$" + o.toString());
+				}
+				for (String id : ids) {
+					txEdt.add(PERSEDUCNAT_TO_GROUPS, new JsonObject()
+							.putArray("groups", g)
+							.putString("id", id)
+							.putString("source", EDT)
+							.putNumber("outDate", DateTime.now().plusDays(1).getMillis()));
+				}
+			}
+		}
 	}
 
 	private JsonObject generateCourse(int startCourseWeek, int endCourseWeek, BitSet enabledItems, List<JsonObject> items, JsonObject entity) {
@@ -602,11 +705,5 @@ public class EDTImporter {
 		c.putNumber("modified", importTimestamp);
 		return c;
 	}
-
-
-// {"Jour":"2","NumeroPlaceDebut":"4","NombrePlaces":"4","Annuel":"1","Matiere":[{"Ident":"195"}],"Professeur":[{"Ident":"54","Semaines":"4342484056092"}],"Classe":[{"Ident":"53","Semaines":"4342484056092"}],"Salle":[{"Ident":"56","Semaines":"4342484056092"}]}
-//{"Jour":"2","NumeroPlaceDebut":"5","NombrePlaces":"3","Annuel":"1","Matiere":[{"Ident":"198"}],"Professeur":[{"Ident":"31","Semaines":"70317002848764"}],"Classe":[{"Ident":"22","Semaines":"70317002848764"}],"Salle":[{"Ident":"16","Semaines":"70317002848764"}]}
-//	{"Jour":"3","NumeroPlaceDebut":"4","NombrePlaces":"2","Annuel":"1","Matiere":[{"Ident":"198"}],"Professeur":[{"Ident":"31","Semaines":"70317002848764"}],"Classe":[{"Ident":"22","Semaines":"70317002848764"}],"Salle":[{"Ident":"16","Semaines":"70317002848764"}]}
-//	{"Jour":"1","NumeroPlaceDebut":"16","NombrePlaces":"4","Annuel":"1","Matiere":[{"Ident":"199"}],"Classe":[{"Ident":"32","Semaines":"67911820638716"}],"Salle":[{"Ident":"52","Semaines":"67911820638716"}]}
 
 }
