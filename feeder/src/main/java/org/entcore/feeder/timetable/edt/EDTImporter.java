@@ -17,13 +17,15 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-package org.entcore.feeder.edtudt;
+package org.entcore.feeder.timetable.edt;
 
 import fr.wseduc.mongodb.MongoDb;
 import fr.wseduc.webutils.DefaultAsyncResult;
 import org.entcore.feeder.dictionary.users.PersEducNat;
 import org.entcore.feeder.exceptions.TransactionException;
 import org.entcore.feeder.exceptions.ValidationException;
+import org.entcore.feeder.timetable.AbstractTimetableImporter;
+import org.entcore.feeder.timetable.Slot;
 import org.entcore.feeder.utils.JsonUtil;
 import org.entcore.feeder.utils.Report;
 import org.entcore.feeder.utils.TransactionHelper;
@@ -35,8 +37,6 @@ import org.vertx.java.core.Handler;
 import org.vertx.java.core.eventbus.Message;
 import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
-import org.vertx.java.core.logging.Logger;
-import org.vertx.java.core.logging.impl.LoggerFactory;
 import org.xml.sax.InputSource;
 import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.XMLReaderFactory;
@@ -44,7 +44,6 @@ import org.xml.sax.helpers.XMLReaderFactory;
 import java.io.StringReader;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static fr.wseduc.webutils.Utils.getOrElse;
@@ -53,9 +52,8 @@ import static fr.wseduc.webutils.Utils.isNotEmpty;
 import static org.entcore.feeder.dictionary.structures.DefaultProfiles.PERSONNEL_PROFILE_EXTERNAL_ID;
 import static org.entcore.feeder.dictionary.structures.DefaultProfiles.TEACHER_PROFILE_EXTERNAL_ID;
 
-public class EDTImporter {
+public class EDTImporter extends AbstractTimetableImporter {
 
-	private static final Logger log = LoggerFactory.getLogger(EDTImporter.class);
 	private static final String MATCH_PERSEDUCNAT_QUERY =
 			"MATCH (:Structure {UAI : {UAI}})<-[:DEPENDS]-(:ProfileGroup)<-[:IN]-(u:User) " +
 			"WHERE head(u.profiles) = {profile} AND LOWER(u.lastName) = {lastName} AND LOWER(u.firstName) = {firstName} " +
@@ -96,28 +94,16 @@ public class EDTImporter {
 	public static final String COURSES = "courses";
 	private final List<String> ignoreAttributes = Arrays.asList("Etiquette", "Periode", "PartieDeClasse");
 	private final EDTUtils edtUtils;
-	private final String UAI;
-	private final Report report;
-	private final JsonArray structure = new JsonArray();
-	private String structureExternalId;
-	private String structureId;
-	private long importTimestamp;
-	private final Map<String, String> teachersMapping = new HashMap<>();
 	private final Map<String, JsonObject> notFoundPersEducNat = new HashMap<>();
 //	private final Map<String, String> personnelsMapping = new HashMap<>();
 	private final Map<String, String> equipments = new HashMap<>();
-	private final Map<String, String> rooms = new HashMap<>();
-	private final Map<String, String> teachers = new HashMap<>();
 	private final Map<String, String> personnels = new HashMap<>();
 	private final Map<String, String> students = new HashMap<>();
 	private final Map<String, String> subjects = new HashMap<>();
 	private final Map<String, JsonObject> classes = new HashMap<>();
 	private final Map<String, JsonObject> subClasses = new HashMap<>();
 	private final Map<String, JsonObject> groups = new HashMap<>();
-	private JsonObject classesMapping;
 	private final Map<String, String> subjectsMapping = new HashMap<>();
-	private DateTime startDateWeek1;
-	private int slotDuration; // minutes
 
 	private PersEducNat persEducNat;
 	private TransactionHelper txEdt;
@@ -127,80 +113,13 @@ public class EDTImporter {
 
 
 	public EDTImporter(EDTUtils edtUtils, String uai, String acceptLanguage) {
+		super(uai);
 		this.edtUtils = edtUtils;
 		UAI = uai;
 		this.report = new Report(acceptLanguage);
 	}
 
-	public void init(final AsyncResultHandler<Void> handler) throws TransactionException {
-		importTimestamp = System.currentTimeMillis();
-		final String externalIdFromUAI = "MATCH (s:Structure {UAI : {UAI}}) return s.externalId as externalId, s.id as id";
-		final String getUsersByProfile =
-				"MATCH (:Structure {UAI : {UAI}})<-[:DEPENDS]-(:ProfileGroup)<-[:IN]-(u:User) " +
-				"WHERE head(u.profiles) = {profile} AND NOT(u.IDPN IS NULL) AND NOT(u.externalId IS NULL) " +
-				"RETURN DISTINCT u.id as id, u.IDPN as IDPN, head(u.profiles) as profile";
-		final String classesMappingQuery = "MATCH (s:Structure {UAI : {UAI}})<-[:MAPPING]-(cm:ClassesMapping) return cm";
-		final String subjectsMappingQuery = "MATCH (s:Structure {UAI : {UAI}})<-[:SUBJECT]-(sub:Subject) return sub.code as code, sub.id as id";
-		final TransactionHelper tx = TransactionManager.getTransaction();
-		tx.add(getUsersByProfile, new JsonObject().putString("UAI", UAI).putString("profile", "Teacher"));
-		//tx.add(getUsersByProfile, new JsonObject().putString("UAI", UAI).putString("profile", "Personnel"));
-		tx.add(externalIdFromUAI, new JsonObject().putString("UAI", UAI));
-		tx.add(classesMappingQuery, new JsonObject().putString("UAI", UAI));
-		tx.add(subjectsMappingQuery, new JsonObject().putString("UAI", UAI));
-		tx.commit(new Handler<Message<JsonObject>>() {
-			@Override
-			public void handle(Message<JsonObject> event) {
-				final JsonArray res = event.body().getArray("results");
-				if ("ok".equals(event.body().getString("status")) && res != null && res.size() == 4) {
-					try {
-						for (Object o : res.<JsonArray>get(0)) {
-							if (o instanceof JsonObject) {
-								final JsonObject j = (JsonObject) o;
-								teachersMapping.put(j.getString(IDPN), j.getString("id"));
-							}
-						}
-//						for (Object o : res.<JsonArray>get(1)) {
-//							if (o instanceof JsonObject) {
-//								final JsonObject j = (JsonObject) o;
-//								personnelsMapping.put(j.getString(IDPN), j.getString("id"));
-//							}
-//						}
-//						JsonArray a = res.get(2);
-						JsonArray a = res.get(1);
-						if (a != null && a.size() == 1) {
-							structureExternalId = a.<JsonObject>get(0).getString("externalId");
-							structure.add(structureExternalId);
-							structureId = a.<JsonObject>get(0).getString("id");
-						} else {
-							handler.handle(new DefaultAsyncResult<Void>(new ValidationException("invalid.uai")));
-							return;
-						}
-						JsonArray cm = res.get(2);
-						if (cm != null && cm.size() == 1) {
-							classesMapping = cm.get(0);
-						}
-						JsonArray subjects = res.get(3);
-						if (subjects != null && subjects.size() > 0) {
-							for (Object o : subjects) {
-								if (o instanceof JsonObject) {
-									final  JsonObject s = (JsonObject) o;
-									subjectsMapping.put(s.getString("code"), s.getString("id"));
-								}
-							}
-						}
-						txEdt = TransactionManager.getTransaction();
-						persEducNat = new PersEducNat(txEdt, report, EDT);
-						persEducNat.setMapping("dictionary/mapping/edt/PersEducNat.json");
-						handler.handle(new DefaultAsyncResult<>((Void) null));
-					} catch (Exception e) {
-						handler.handle(new DefaultAsyncResult<Void>(e));
-					}
-				} else {
-					handler.handle(new DefaultAsyncResult<Void>(new TransactionException(event.body().getString("message"))));
-				}
-			}
-		});
-	}
+
 
 	public void launch(final AsyncResultHandler<Report> handler) throws Exception {
 		final String content = edtUtils.decryptExport("/home/dboissin/Docs/EDT - UDT/Edt_To_NEO-Open_1234567H.xml");
@@ -285,17 +204,23 @@ public class EDTImporter {
 	}
 
 	public void initSchedule(JsonObject currentEntity) {
-		slotDuration = Integer.parseInt(currentEntity.getString("DureePlace"));
+		slotDuration = Integer.parseInt(currentEntity.getString("DureePlace")) * 60;
 		for (Object o : currentEntity.getArray("Place")) {
-			if (!(o instanceof JsonObject) || !"0".equals(((JsonObject) o).getString("Numero"))) continue;
-			String[] startHour = ((JsonObject) o).getString("LibelleHeureDebut").split(":");
-			if (startHour.length == 3) {
-				startDateWeek1 = startDateWeek1
-						.plusHours(Integer.parseInt(startHour[0]))
-						.plusMinutes(Integer.parseInt(startHour[1]))
-						.plusSeconds(Integer.parseInt(startHour[2]));
-				break;
+			if (o instanceof JsonObject) {
+				JsonObject s = (JsonObject) o;
+				slots.put(s.getString("Numero"), new Slot(
+						s.getString("LibelleHeureDebut"), s.getString("LibelleHeureFin"), slotDuration));
 			}
+
+//			if (!(o instanceof JsonObject) || !"0".equals(((JsonObject) o).getString("Numero"))) continue;
+//			String[] startHour = ((JsonObject) o).getString("LibelleHeureDebut").split(":");
+//			if (startHour.length == 3) {
+//				startDateWeek1 = startDateWeek1
+//						.plusHours(Integer.parseInt(startHour[0]))
+//						.plusMinutes(Integer.parseInt(startHour[1]))
+//						.plusSeconds(Integer.parseInt(startHour[2]));
+//				break;
+//			}
 		}
 	}
 
@@ -706,4 +631,8 @@ public class EDTImporter {
 		return c;
 	}
 
+	@Override
+	protected String getTeacherMappingAttribute() {
+		return "IDPN";
+	}
 }

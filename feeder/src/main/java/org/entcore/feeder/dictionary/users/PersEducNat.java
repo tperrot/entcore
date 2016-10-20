@@ -19,7 +19,7 @@
 
 package org.entcore.feeder.dictionary.users;
 
-import org.entcore.feeder.edtudt.EDTImporter;
+import org.entcore.feeder.timetable.edt.EDTImporter;
 import org.entcore.feeder.utils.Neo4j;
 import org.entcore.feeder.utils.Report;
 import org.entcore.feeder.utils.TransactionHelper;

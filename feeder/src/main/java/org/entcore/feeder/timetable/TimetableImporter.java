@@ -17,18 +17,13 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-package org.entcore.feeder.edtudt;
+package org.entcore.feeder.timetable;
 
-import org.entcore.feeder.utils.Validator;
+import org.entcore.feeder.utils.Report;
+import org.vertx.java.core.AsyncResultHandler;
 
-public class EdtValidator extends Validator {
+public interface TimetableImporter {
 
-	public EdtValidator(String resource) {
-		super(resource);
-	}
-
-	public EdtValidator(String resource, boolean notStoreLogins) {
-		super(resource, notStoreLogins);
-	}
+	public void launch(final AsyncResultHandler<Report> handler) throws Exception;
 
 }

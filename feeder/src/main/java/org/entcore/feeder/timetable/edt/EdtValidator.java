@@ -17,5 +17,18 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-@javax.xml.bind.annotation.XmlSchema(namespace = "http://www.index-education.com/conteneurexportchiffre", elementFormDefault = javax.xml.bind.annotation.XmlNsForm.QUALIFIED)
-package org.entcore.feeder.edtudt;
+package org.entcore.feeder.timetable.edt;
+
+import org.entcore.feeder.utils.Validator;
+
+public class EdtValidator extends Validator {
+
+	public EdtValidator(String resource) {
+		super(resource);
+	}
+
+	public EdtValidator(String resource, boolean notStoreLogins) {
+		super(resource, notStoreLogins);
+	}
+
+}

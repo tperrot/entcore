@@ -17,7 +17,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-package org.entcore.feeder.edtudt;
+package org.entcore.feeder.timetable.edt;
 
 
 import fr.wseduc.webutils.data.XML;
