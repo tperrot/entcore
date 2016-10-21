@@ -31,6 +31,8 @@ import org.vertx.java.core.logging.impl.LoggerFactory;
 import java.util.Map;
 import java.util.Set;
 
+import static org.entcore.feeder.utils.AAFUtil.convertDate;
+
 public abstract class AbstractUser {
 
 	protected static final Logger log = LoggerFactory.getLogger(AbstractUser.class);
@@ -104,6 +106,11 @@ public abstract class AbstractUser {
 					// TODO implement types management
 					//String type = j.getString("type");
 					String attribute = j.getString("attribute");
+					if ("birthDate".equals(attribute)) {
+						s = convertDate(s);
+					} else if ("deprecated".equals(attribute)) {
+						continue;
+					}
 					res.putString(attribute, s);
 				}
 			}

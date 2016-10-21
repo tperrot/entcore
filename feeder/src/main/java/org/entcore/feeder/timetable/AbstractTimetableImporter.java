@@ -37,10 +37,31 @@ import org.vertx.java.core.logging.impl.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
+
+import static fr.wseduc.webutils.Utils.isEmpty;
 
 public abstract class AbstractTimetableImporter implements TimetableImporter {
 
 	protected static final Logger log = LoggerFactory.getLogger(AbstractTimetableImporter.class);
+	private static final String CREATE_SUBJECT =
+			"MATCH (s:Structure {externalId : {structureExternalId}}) " +
+			"MERGE (sub:Subject {externalId : {externalId}}) " +
+			"ON CREATE SET sub.code = {Code}, sub.label = {Libelle}, sub.id = {id} " +
+			"MERGE (sub)-[:SUBJECT]->(s) ";
+	protected static final String UNKNOWN_CLASSES =
+			"MATCH (s:Structure {UAI : {UAI}})<-[:BELONGS]-(c:Class) " +
+			"WHERE c.name = {className} " +
+			"WITH count(*) AS exists, s " +
+			"WHERE exists = 0 " +
+			"MERGE (cm:ClassesMapping { UAI : {UAI}}) " +
+			"SET cm.unknownClasses = coalesce(FILTER(cn IN cm.unknownClasses WHERE cn <> {className}), []) + {className} " +
+			"MERGE (s)<-[:MAPPING]-(cm) ";
+	protected static final String CREATE_GROUPS =
+			"MATCH (s:Structure {externalId : {structureExternalId}}) " +
+			"MERGE (fg:FunctionalGroup {externalId:{externalId}}) " +
+			"ON CREATE SET fg.name = {name}, fg.id = {id} " +
+			"MERGE (fg)-[:DEPENDS]->(s) ";
 	protected long importTimestamp;
 	protected final String UAI;
 	protected final Report report;
@@ -54,9 +75,17 @@ public abstract class AbstractTimetableImporter implements TimetableImporter {
 	protected final Map<String, String> rooms = new HashMap<>();
 	protected final Map<String, String> teachersMapping = new HashMap<>();
 	protected final Map<String, String> teachers = new HashMap<>();
+	protected final Map<String, String> subjectsMapping = new HashMap<>();
+	protected final Map<String, String> subjects = new HashMap<>();
+	protected final Map<String, JsonObject> classes = new HashMap<>();
+	protected final Map<String, JsonObject> groups = new HashMap<>();
 
-	protected AbstractTimetableImporter(String uai) {
+	protected PersEducNat persEducNat;
+	protected TransactionHelper txXDT;
+
+	protected AbstractTimetableImporter(String uai, String acceptLanguage) {
 		UAI = uai;
+		this.report = new Report(acceptLanguage);
 	}
 
 	protected void init(final AsyncResultHandler<Void> handler) throws TransactionException {
@@ -116,9 +145,9 @@ public abstract class AbstractTimetableImporter implements TimetableImporter {
 								}
 							}
 						}
-						txEdt = TransactionManager.getTransaction();
-						persEducNat = new PersEducNat(txEdt, report, EDT);
-						persEducNat.setMapping("dictionary/mapping/edt/PersEducNat.json");
+						txXDT = TransactionManager.getTransaction();
+						persEducNat = new PersEducNat(txXDT, report, getSource());
+						persEducNat.setMapping("dictionary/mapping/" + getSource().toLowerCase() + "/PersEducNat.json");
 						handler.handle(new DefaultAsyncResult<>((Void) null));
 					} catch (Exception e) {
 						handler.handle(new DefaultAsyncResult<Void>(e));
@@ -129,6 +158,19 @@ public abstract class AbstractTimetableImporter implements TimetableImporter {
 			}
 		});
 	}
+
+	protected void addSubject(String id, JsonObject currentEntity) {
+		String subjectId = subjectsMapping.get(currentEntity.getString("Code"));
+		if (isEmpty(subjectId)) {
+			final String externalId = structureExternalId + "$" + currentEntity.getString("Code");
+			subjectId = UUID.randomUUID().toString();
+			txXDT.add(CREATE_SUBJECT, currentEntity.putString("structureExternalId", structureExternalId)
+					.putString("externalId", externalId).putString("id", subjectId));
+		}
+		subjects.put(id, subjectId);
+	}
+
+	protected abstract String getSource();
 
 	protected abstract String getTeacherMappingAttribute();
 

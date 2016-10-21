@@ -21,7 +21,6 @@ package org.entcore.feeder.timetable.edt;
 
 import fr.wseduc.mongodb.MongoDb;
 import fr.wseduc.webutils.DefaultAsyncResult;
-import org.entcore.feeder.dictionary.users.PersEducNat;
 import org.entcore.feeder.exceptions.TransactionException;
 import org.entcore.feeder.exceptions.ValidationException;
 import org.entcore.feeder.timetable.AbstractTimetableImporter;
@@ -47,7 +46,6 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static fr.wseduc.webutils.Utils.getOrElse;
-import static fr.wseduc.webutils.Utils.isEmpty;
 import static fr.wseduc.webutils.Utils.isNotEmpty;
 import static org.entcore.feeder.dictionary.structures.DefaultProfiles.PERSONNEL_PROFILE_EXTERNAL_ID;
 import static org.entcore.feeder.dictionary.structures.DefaultProfiles.TEACHER_PROFILE_EXTERNAL_ID;
@@ -59,24 +57,6 @@ public class EDTImporter extends AbstractTimetableImporter {
 			"WHERE head(u.profiles) = {profile} AND LOWER(u.lastName) = {lastName} AND LOWER(u.firstName) = {firstName} " +
 			"SET u.IDPN = {IDPN} " +
 			"RETURN DISTINCT u.id as id, u.IDPN as IDPN, head(u.profiles) as profile";
-	private static final String UNKNOWN_CLASSES =
-			"MATCH (s:Structure {UAI : {UAI}})<-[:BELONGS]-(c:Class) " +
-			"WHERE c.name = {className} " +
-			"WITH count(*) AS exists, s " +
-			"WHERE exists = 0 " +
-			"MERGE (cm:ClassesMapping { UAI : {UAI}}) " +
-			"SET cm.unknownClasses = coalesce(FILTER(cn IN cm.unknownClasses WHERE cn <> {className}), []) + {className} " +
-			"MERGE (s)<-[:MAPPING]-(cm) ";
-	private static final String CREATE_GROUPS =
-			"MATCH (s:Structure {externalId : {structureExternalId}}) " +
-			"MERGE (fg:FunctionalGroup {externalId:{externalId}}) " +
-			"ON CREATE SET fg.name = {name}, fg.id = {id} " +
-			"MERGE (fg)-[:DEPENDS]->(s) ";
-	private static final String CREATE_SUBJECT =
-			"MATCH (s:Structure {externalId : {structureExternalId}}) " +
-			"MERGE (sub:Subject {externalId : {externalId}}) " +
-			"ON CREATE SET sub.code = {Code}, sub.label = {Libelle}, sub.id = {id} " +
-			"MERGE (sub)-[:SUBJECT]->(s) ";
 	private static final String STUDENTS_TO_GROUPS =
 			"MATCH (u:User {attachmentId = {idSconet}}), (fg:FunctionalGroup {externalId:{externalId}}) " +
 			"MERGE u-[:IN {source:{source}, inDate:{inDate}, outDate:{outDate}}]->fg ";
@@ -98,28 +78,18 @@ public class EDTImporter extends AbstractTimetableImporter {
 //	private final Map<String, String> personnelsMapping = new HashMap<>();
 	private final Map<String, String> equipments = new HashMap<>();
 	private final Map<String, String> personnels = new HashMap<>();
-	private final Map<String, String> students = new HashMap<>();
-	private final Map<String, String> subjects = new HashMap<>();
-	private final Map<String, JsonObject> classes = new HashMap<>();
+//	private final Map<String, String> students = new HashMap<>();
 	private final Map<String, JsonObject> subClasses = new HashMap<>();
-	private final Map<String, JsonObject> groups = new HashMap<>();
-	private final Map<String, String> subjectsMapping = new HashMap<>();
 
-	private PersEducNat persEducNat;
-	private TransactionHelper txEdt;
 	private final MongoDb mongoDb = MongoDb.getInstance();
 	private final AtomicInteger countMongoQueries = new AtomicInteger(0);
 	private AsyncResultHandler<Report> endHandler;
 
 
 	public EDTImporter(EDTUtils edtUtils, String uai, String acceptLanguage) {
-		super(uai);
+		super(uai, acceptLanguage);
 		this.edtUtils = edtUtils;
-		UAI = uai;
-		this.report = new Report(acceptLanguage);
 	}
-
-
 
 	public void launch(final AsyncResultHandler<Report> handler) throws Exception {
 		final String content = edtUtils.decryptExport("/home/dboissin/Docs/EDT - UDT/Edt_To_NEO-Open_1234567H.xml");
@@ -128,9 +98,9 @@ public class EDTImporter extends AbstractTimetableImporter {
 			public void handle(AsyncResult<Void> event) {
 				if (event.succeeded()) {
 					try {
-						txEdt.setAutoSend(false);
+						txXDT.setAutoSend(false);
 						parse(content, true);
-						if (txEdt.isEmpty()) {
+						if (txXDT.isEmpty()) {
 							parse(content, false);
 						} else {
 							matchAndCreatePersEducNat(new AsyncResultHandler<Void>() {
@@ -138,12 +108,12 @@ public class EDTImporter extends AbstractTimetableImporter {
 								public void handle(AsyncResult<Void> event) {
 									if (event.succeeded()) {
 										try {
-											txEdt = TransactionManager.getTransaction();
+											txXDT = TransactionManager.getTransaction();
 											parse(content, false);
-											txEdt.add(DELETE_OLD_RELATIONSHIPS, new JsonObject()
+											txXDT.add(DELETE_OLD_RELATIONSHIPS, new JsonObject()
 													.putString("id", structureId).putString("source", EDT)
 													.putNumber("now", System.currentTimeMillis()));
-											txEdt.commit(new Handler<Message<JsonObject>>() {
+											txXDT.commit(new Handler<Message<JsonObject>>() {
 												@Override
 												public void handle(Message<JsonObject> event) {
 													if (!"ok".equals(event.body().getString("status"))) {
@@ -190,7 +160,7 @@ public class EDTImporter extends AbstractTimetableImporter {
 		}
 	}
 
-	public void parse(String content, boolean persEducNatOnly) throws Exception {
+	private void parse(String content, boolean persEducNatOnly) throws Exception {
 		//InputSource in = new InputSource("/home/dboissin/Docs/EDT - UDT/ImportCahierTexte/EDT/HarounTazieff.xml");
 		InputSource in = new InputSource(new StringReader(content));
 		EDTHandler sh = new EDTHandler(this, persEducNatOnly);
@@ -199,11 +169,11 @@ public class EDTImporter extends AbstractTimetableImporter {
 		xr.parse(in);
 	}
 
-	public void initSchoolYear(JsonObject schoolYear) {
+	void initSchoolYear(JsonObject schoolYear) {
 		startDateWeek1 = DateTime.parse(schoolYear.getString("DatePremierJourSemaine1"));
 	}
 
-	public void initSchedule(JsonObject currentEntity) {
+	void initSchedule(JsonObject currentEntity) {
 		slotDuration = Integer.parseInt(currentEntity.getString("DureePlace")) * 60;
 		for (Object o : currentEntity.getArray("Place")) {
 			if (o instanceof JsonObject) {
@@ -224,16 +194,19 @@ public class EDTImporter extends AbstractTimetableImporter {
 		}
 	}
 
-	public void addRoom(JsonObject currentEntity) {
+	void addRoom(JsonObject currentEntity) {
 		rooms.put(currentEntity.getString(IDENT), currentEntity.getString("Nom"));
 	}
 
-
-	public void addEquipment(JsonObject currentEntity) {
+	void addEquipment(JsonObject currentEntity) {
 		equipments.put(currentEntity.getString(IDENT), currentEntity.getString("Nom"));
 	}
 
-	public void addGroup(JsonObject currentEntity) {
+	void addSubject(JsonObject currentEntity) {
+		super.addSubject(currentEntity.getString(IDENT), currentEntity);
+	}
+
+	void addGroup(JsonObject currentEntity) {
 		final String id = currentEntity.getString(IDENT);
 		groups.put(id, currentEntity);
 		final JsonArray classes = currentEntity.getArray("Classe");
@@ -242,7 +215,7 @@ public class EDTImporter extends AbstractTimetableImporter {
 		classInGroups(id, pcs, this.subClasses);
 
 		final String name = currentEntity.getString("Nom");
-		txEdt.add(CREATE_GROUPS, new JsonObject().putString("structureExternalId", structureExternalId).putString("name", name)
+		txXDT.add(CREATE_GROUPS, new JsonObject().putString("structureExternalId", structureExternalId).putString("name", name)
 				.putString("externalId", structureExternalId + "$" + name).putString("id", UUID.randomUUID().toString()));
 	}
 
@@ -264,7 +237,7 @@ public class EDTImporter extends AbstractTimetableImporter {
 		}
 	}
 
-	public void addClasse(JsonObject currentEntity) {
+	void addClasse(JsonObject currentEntity) {
 		final String id = currentEntity.getString(IDENT);
 		classes.put(id, currentEntity);
 		final JsonArray pcs = currentEntity.getArray("PartieDeClasse");
@@ -279,10 +252,10 @@ public class EDTImporter extends AbstractTimetableImporter {
 				}
 			}
 		}
-		txEdt.add(UNKNOWN_CLASSES, new JsonObject().putString("UAI", UAI).putString("className", className));
+		txXDT.add(UNKNOWN_CLASSES, new JsonObject().putString("UAI", UAI).putString("className", className));
 	}
 
-	public void addProfesseur(JsonObject currentEntity) {
+	void addProfesseur(JsonObject currentEntity) {
 		// TODO manage users without IDPN
 		final String id = currentEntity.getString(IDENT);
 		final String idPronote = structureExternalId + "$" + currentEntity.getString(IDPN);
@@ -294,9 +267,9 @@ public class EDTImporter extends AbstractTimetableImporter {
 		}
 	}
 
-	public void addPersonnel(JsonObject currentEntity) {
+	void addPersonnel(JsonObject currentEntity) {
 		final String id = currentEntity.getString(IDENT);
-		final String idPronote = structureExternalId + "$" + id; // fake pronote id
+		final String idPronote = structureExternalId + "$" + id; // fake pronote id // TODO replace by hash
 //		final String personnelId = personnelsMapping.get(idPronote);
 //		if (personnelId != null) {
 //			personnels.put(id, personnelId);
@@ -313,7 +286,7 @@ public class EDTImporter extends AbstractTimetableImporter {
 			p.putString("externalId", idPronote);
 			p.putString(IDPN, idPronote);
 			notFoundPersEducNat.put(idPronote, p);
-			txEdt.add(MATCH_PERSEDUCNAT_QUERY, new JsonObject().putString("UAI", UAI).putString(IDPN, idPronote)
+			txXDT.add(MATCH_PERSEDUCNAT_QUERY, new JsonObject().putString("UAI", UAI).putString(IDPN, idPronote)
 					.putString("profile", profile)
 					.putString("lastName", p.getString("lastName").toLowerCase())
 					.putString("firstName", p.getString("firstName").toLowerCase()));
@@ -323,7 +296,7 @@ public class EDTImporter extends AbstractTimetableImporter {
 	}
 
 	private void matchAndCreatePersEducNat(final AsyncResultHandler<Void> handler) {
-		txEdt.commit(new Handler<Message<JsonObject>>() {
+		txXDT.commit(new Handler<Message<JsonObject>>() {
 			@Override
 			public void handle(Message<JsonObject> event) {
 				JsonArray res = event.body().getArray("results");
@@ -398,7 +371,7 @@ public class EDTImporter extends AbstractTimetableImporter {
 
 	}
 
-	public void addEleve(JsonObject currentEntity) {
+	void addEleve(JsonObject currentEntity) {
 		final String sconetId = currentEntity.getString("IDSconet");
 		if (isNotEmpty(sconetId)) {
 			final JsonArray classes = currentEntity.getArray("Classe");
@@ -426,7 +399,7 @@ public class EDTImporter extends AbstractTimetableImporter {
 								JsonObject group = this.groups.get(o2.toString());
 								if (group != null) {
 									String name = group.getString("Nom");
-									txEdt.add(STUDENTS_TO_GROUPS, new JsonObject()
+									txXDT.add(STUDENTS_TO_GROUPS, new JsonObject()
 											.putString("idSconet", sconetId)
 											.putString("externalId", structureExternalId + "$" + name)
 											.putString("source", EDT)
@@ -441,19 +414,7 @@ public class EDTImporter extends AbstractTimetableImporter {
 		}
 	}
 
-	public void addSubject(JsonObject currentEntity) {
-		final String id = currentEntity.getString(IDENT);
-		String subjectId = subjectsMapping.get(currentEntity.getString("Code"));
-		if (isEmpty(subjectId)) {
-			final String externalId = structureExternalId + "$" + currentEntity.getString("Code");
-			subjectId = UUID.randomUUID().toString();
-			txEdt.add(CREATE_SUBJECT, currentEntity.putString("structureExternalId", structureExternalId)
-					.putString("externalId", externalId).putString("id", subjectId));
-		}
-		subjects.put(id, subjectId);
-	}
-
-	public void addCourse(JsonObject currentEntity) {
+	void addCourse(JsonObject currentEntity) {
 		final List<Long> weeks = new ArrayList<>();
 		final List<JsonObject> items = new ArrayList<>();
 
@@ -539,7 +500,7 @@ public class EDTImporter extends AbstractTimetableImporter {
 					g.add(structureExternalId + "$" + o.toString());
 				}
 				for (String id : ids) {
-					txEdt.add(PERSEDUCNAT_TO_GROUPS, new JsonObject()
+					txXDT.add(PERSEDUCNAT_TO_GROUPS, new JsonObject()
 							.putArray("groups", g)
 							.putString("id", id)
 							.putString("source", EDT)
@@ -632,7 +593,13 @@ public class EDTImporter extends AbstractTimetableImporter {
 	}
 
 	@Override
+	protected String getSource() {
+		return EDT;
+	}
+
+	@Override
 	protected String getTeacherMappingAttribute() {
 		return "IDPN";
 	}
+
 }

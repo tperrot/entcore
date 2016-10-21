@@ -64,12 +64,11 @@ public class UDTHandler extends DefaultHandler {
 
 		switch (localName) {
 			case "Cours":
-			case "Matiere":
-			case "Eleve":
-	//				case "Professeur":
-	//				case "Personnel":
-			case "Classe":
-			case "Groupe":
+			case "mat":
+			case "ele_gpe":
+			case "prof":
+			case "div":
+			case "gpe":
 			case "salle":
 			case "demi_seq":
 			case "init":
@@ -97,21 +96,21 @@ public class UDTHandler extends DefaultHandler {
 //				case "Cours":
 //					udtImporter.addCourse(currentEntity);
 //					break;
-//				case "Matiere":
-//					udtImporter.addSubject(currentEntity);
-//					break;
-//				case "Eleve":
-//					udtImporter.addEleve(currentEntity);
-//					break;
-////					case "Professeur":
-////						udtImporter.addProfesseur(currentEntity);
-////						break;
-//				case "Classe":
-//					udtImporter.addClasse(currentEntity);
-//					break;
-//				case "Groupe":
-//					udtImporter.addGroup(currentEntity);
-//					break;
+				case "mat":
+					udtImporter.addSubject(currentEntity);
+					break;
+				case "ele_gpe":
+					udtImporter.addEleve(currentEntity);
+					break;
+				case "prof":
+					udtImporter.addProfesseur(currentEntity);
+					break;
+				case "div":
+					udtImporter.addClasse(currentEntity);
+					break;
+				case "gpe":
+					udtImporter.addGroup(currentEntity);
+					break;
 				case "salle":
 					udtImporter.addRoom(currentEntity);
 					break;
