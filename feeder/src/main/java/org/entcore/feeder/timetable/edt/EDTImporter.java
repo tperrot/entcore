@@ -60,10 +60,6 @@ public class EDTImporter extends AbstractTimetableImporter {
 	private static final String STUDENTS_TO_GROUPS =
 			"MATCH (u:User {attachmentId = {idSconet}}), (fg:FunctionalGroup {externalId:{externalId}}) " +
 			"MERGE u-[:IN {source:{source}, inDate:{inDate}, outDate:{outDate}}]->fg ";
-	private static final String PERSEDUCNAT_TO_GROUPS =
-			"MATCH (u:User {id : {id}}), (fg:FunctionalGroup) " +
-			"WHERE fg.externalId IN {groups} " +
-			"MERGE u-[:IN {source:{source}, outDate:{outDate}}]->fg ";
 	private static final String DELETE_OLD_RELATIONSHIPS =
 			"MATCH (:Structure {id:{id}})<-[:DEPENDS]-(fg:FunctionalGroup)<-[r:IN]-(:User) " +
 			"WHERE r.source = {source} AND HAS(r.outDate) AND r.outDate < {now} " +
@@ -71,20 +67,13 @@ public class EDTImporter extends AbstractTimetableImporter {
 	public static final String IDENT = "Ident";
 	public static final String IDPN = "IDPN";
 	public static final String EDT = "EDT";
-	public static final String COURSES = "courses";
 	private final List<String> ignoreAttributes = Arrays.asList("Etiquette", "Periode", "PartieDeClasse");
 	private final EDTUtils edtUtils;
 	private final Map<String, JsonObject> notFoundPersEducNat = new HashMap<>();
 //	private final Map<String, String> personnelsMapping = new HashMap<>();
 	private final Map<String, String> equipments = new HashMap<>();
 	private final Map<String, String> personnels = new HashMap<>();
-//	private final Map<String, String> students = new HashMap<>();
 	private final Map<String, JsonObject> subClasses = new HashMap<>();
-
-	private final MongoDb mongoDb = MongoDb.getInstance();
-	private final AtomicInteger countMongoQueries = new AtomicInteger(0);
-	private AsyncResultHandler<Report> endHandler;
-
 
 	public EDTImporter(EDTUtils edtUtils, String uai, String acceptLanguage) {
 		super(uai, acceptLanguage);
@@ -113,16 +102,7 @@ public class EDTImporter extends AbstractTimetableImporter {
 											txXDT.add(DELETE_OLD_RELATIONSHIPS, new JsonObject()
 													.putString("id", structureId).putString("source", EDT)
 													.putNumber("now", System.currentTimeMillis()));
-											txXDT.commit(new Handler<Message<JsonObject>>() {
-												@Override
-												public void handle(Message<JsonObject> event) {
-													if (!"ok".equals(event.body().getString("status"))) {
-														report.addError("error.commit.edt.transaction");
-													}
-													endHandler = handler;
-													end();
-												}
-											});
+											commit(handler);
 										} catch (Exception e) {
 											handler.handle(new DefaultAsyncResult<Report>(e));
 										}
@@ -140,24 +120,6 @@ public class EDTImporter extends AbstractTimetableImporter {
 				}
 			}
 		});
-	}
-
-	private void end() {
-		if (endHandler != null && countMongoQueries.get() == 0) {
-			mongoDb.update(COURSES, new JsonObject().putString("structureId", structureId)
-							.putObject("deleted", new JsonObject().putBoolean("$exists", false))
-							.putObject("modified", new JsonObject().putNumber("$ne", importTimestamp)),
-					new JsonObject().putObject("$set", new JsonObject().putNumber("deleted", importTimestamp)), false, true,
-					new Handler<Message<JsonObject>>() {
-						@Override
-						public void handle(Message<JsonObject> event) {
-							if (!"ok".equals(event.body().getString("status"))) {
-								report.addError("error.set.deleted.courses");
-							}
-							endHandler.handle(new DefaultAsyncResult<Report>(report));
-						}
-					});
-		}
 	}
 
 	private void parse(String content, boolean persEducNatOnly) throws Exception {
@@ -458,54 +420,6 @@ public class EDTImporter extends AbstractTimetableImporter {
 				}
 				startCourseWeek = enabledCurrentWeek ? i : 0;
 				lastWeek = currentWeek;
-			}
-		}
-	}
-
-	private void persistCourse(JsonObject object) {
-		persEducNatToGroups(object);
-		// TODO add two phase commit
-		countMongoQueries.incrementAndGet();
-		JsonObject m = new JsonObject().putObject("$set", object)
-				.putObject("$setOnInsert", new JsonObject().putNumber("created", importTimestamp));
-		mongoDb.update(COURSES, new JsonObject().putString("_id", object.getString("_id")), m, true, false,
-				new Handler<Message<JsonObject>>() {
-			@Override
-			public void handle(Message<JsonObject> event) {
-				if (!"ok".equals(event.body().getString("status"))) {
-					report.addError("error.persist.course");
-				}
-				if (countMongoQueries.decrementAndGet() == 0) {
-					end();
-				}
-			}
-		});
-	}
-
-	private void persEducNatToGroups(JsonObject object) {
-		JsonArray groups = object.getArray("groups");
-		if (groups != null) {
-			JsonArray teacherIds = object.getArray("teacherIds");
-			List<String> ids = new ArrayList<>();
-			if (teacherIds != null) {
-				ids.addAll(teacherIds.toList());
-			}
-			JsonArray personnelIds = object.getArray("personnelIds");
-			if (personnelIds != null) {
-				ids.addAll(personnelIds.toList());
-			}
-			if (!ids.isEmpty()) {
-				JsonArray g = new JsonArray();
-				for (Object o : groups) {
-					g.add(structureExternalId + "$" + o.toString());
-				}
-				for (String id : ids) {
-					txXDT.add(PERSEDUCNAT_TO_GROUPS, new JsonObject()
-							.putArray("groups", g)
-							.putString("id", id)
-							.putString("source", EDT)
-							.putNumber("outDate", DateTime.now().plusDays(1).getMillis()));
-				}
 			}
 		}
 	}

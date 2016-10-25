@@ -19,6 +19,7 @@
 
 package org.entcore.feeder.timetable;
 
+import fr.wseduc.mongodb.MongoDb;
 import fr.wseduc.webutils.DefaultAsyncResult;
 import org.entcore.feeder.dictionary.users.PersEducNat;
 import org.entcore.feeder.exceptions.TransactionException;
@@ -35,9 +36,8 @@ import org.vertx.java.core.json.JsonObject;
 import org.vertx.java.core.logging.Logger;
 import org.vertx.java.core.logging.impl.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static fr.wseduc.webutils.Utils.isEmpty;
 
@@ -62,6 +62,11 @@ public abstract class AbstractTimetableImporter implements TimetableImporter {
 			"MERGE (fg:FunctionalGroup {externalId:{externalId}}) " +
 			"ON CREATE SET fg.name = {name}, fg.id = {id} " +
 			"MERGE (fg)-[:DEPENDS]->(s) ";
+	private static final String PERSEDUCNAT_TO_GROUPS =
+			"MATCH (u:User {id : {id}}), (fg:FunctionalGroup) " +
+					"WHERE fg.externalId IN {groups} " +
+					"MERGE u-[:IN {source:{source}, outDate:{outDate}}]->fg ";
+	public static final String COURSES = "courses";
 	protected long importTimestamp;
 	protected final String UAI;
 	protected final Report report;
@@ -82,6 +87,9 @@ public abstract class AbstractTimetableImporter implements TimetableImporter {
 
 	protected PersEducNat persEducNat;
 	protected TransactionHelper txXDT;
+	private final MongoDb mongoDb = MongoDb.getInstance();
+	private final AtomicInteger countMongoQueries = new AtomicInteger(0);
+	private AsyncResultHandler<Report> endHandler;
 
 	protected AbstractTimetableImporter(String uai, String acceptLanguage) {
 		UAI = uai;
@@ -168,6 +176,85 @@ public abstract class AbstractTimetableImporter implements TimetableImporter {
 					.putString("externalId", externalId).putString("id", subjectId));
 		}
 		subjects.put(id, subjectId);
+	}
+
+	protected void persistCourse(JsonObject object) {
+		persEducNatToGroups(object);
+		// TODO add two phase commit
+		countMongoQueries.incrementAndGet();
+		JsonObject m = new JsonObject().putObject("$set", object)
+				.putObject("$setOnInsert", new JsonObject().putNumber("created", importTimestamp));
+		mongoDb.update(COURSES, new JsonObject().putString("_id", object.getString("_id")), m, true, false,
+				new Handler<Message<JsonObject>>() {
+					@Override
+					public void handle(Message<JsonObject> event) {
+						if (!"ok".equals(event.body().getString("status"))) {
+							report.addError("error.persist.course");
+						}
+						if (countMongoQueries.decrementAndGet() == 0) {
+							end();
+						}
+					}
+				});
+	}
+
+	protected void persEducNatToGroups(JsonObject object) {
+		JsonArray groups = object.getArray("groups");
+		if (groups != null) {
+			JsonArray teacherIds = object.getArray("teacherIds");
+			List<String> ids = new ArrayList<>();
+			if (teacherIds != null) {
+				ids.addAll(teacherIds.toList());
+			}
+			JsonArray personnelIds = object.getArray("personnelIds");
+			if (personnelIds != null) {
+				ids.addAll(personnelIds.toList());
+			}
+			if (!ids.isEmpty()) {
+				JsonArray g = new JsonArray();
+				for (Object o : groups) {
+					g.add(structureExternalId + "$" + o.toString());
+				}
+				for (String id : ids) {
+					txXDT.add(PERSEDUCNAT_TO_GROUPS, new JsonObject()
+							.putArray("groups", g)
+							.putString("id", id)
+							.putString("source", getSource())
+							.putNumber("outDate", DateTime.now().plusDays(1).getMillis()));
+				}
+			}
+		}
+	}
+
+	private void end() {
+		if (endHandler != null && countMongoQueries.get() == 0) {
+			mongoDb.update(COURSES, new JsonObject().putString("structureId", structureId)
+							.putObject("deleted", new JsonObject().putBoolean("$exists", false))
+							.putObject("modified", new JsonObject().putNumber("$ne", importTimestamp)),
+					new JsonObject().putObject("$set", new JsonObject().putNumber("deleted", importTimestamp)), false, true,
+					new Handler<Message<JsonObject>>() {
+						@Override
+						public void handle(Message<JsonObject> event) {
+							if (!"ok".equals(event.body().getString("status"))) {
+								report.addError("error.set.deleted.courses");
+							}
+							endHandler.handle(new DefaultAsyncResult<>(report));
+						}
+					});
+		}
+	}
+
+	protected void commit(final AsyncResultHandler<Report> handler) {
+		txXDT.commit(new Handler<Message<JsonObject>>() {
+			@Override
+			public void handle(Message<JsonObject> event) {
+				if (!"ok".equals(event.body().getString("status"))) {
+					report.addError("error.commit.timetable.transaction");
+				}
+				endHandler = handler;
+				end();
+			}
+		});
 	}
 
 	protected abstract String getSource();

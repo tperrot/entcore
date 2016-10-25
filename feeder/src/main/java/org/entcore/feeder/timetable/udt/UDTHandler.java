@@ -45,6 +45,8 @@ public class UDTHandler extends DefaultHandler {
 	public void characters(char[] ch, int start, int length) throws SAXException {
 		if ("annee".equals(currentTag)) {
 			udtImporter.setYear(new String(ch, start, length));
+		} else if ("fin_eleve".equals(currentTag)) {
+			udtImporter.setEndStudents(new String(ch, start, length));
 		}
 	}
 
@@ -63,15 +65,19 @@ public class UDTHandler extends DefaultHandler {
 		}
 
 		switch (localName) {
-			case "Cours":
+			case "ligfiche":
+			case "fiche":
+			case "rgpmt":
 			case "mat":
 			case "ele_gpe":
 			case "prof":
 			case "div":
 			case "gpe":
 			case "salle":
+			case "coens":
 			case "demi_seq":
 			case "init":
+			case "semaines":
 				currentEntityType = localName;
 				currentEntity = o;
 				break;
@@ -93,9 +99,15 @@ public class UDTHandler extends DefaultHandler {
 		if (localName.equals(currentEntityType)) {
 			currentEntityType = "";
 			switch (localName) {
-//				case "Cours":
-//					udtImporter.addCourse(currentEntity);
-//					break;
+				case "ligfiche":
+					udtImporter.addCourse(currentEntity);
+					break;
+				case "fiche":
+					udtImporter.addFicheT(currentEntity);
+					break;
+				case "rgpmt":
+					udtImporter.addGroup2(currentEntity);
+					break;
 				case "mat":
 					udtImporter.addSubject(currentEntity);
 					break;
@@ -114,11 +126,17 @@ public class UDTHandler extends DefaultHandler {
 				case "salle":
 					udtImporter.addRoom(currentEntity);
 					break;
+				case "coens":
+					udtImporter.addCoens(currentEntity);
+					break;
 				case "demi_seq":
 					udtImporter.initSchedule(currentEntity);
 					break;
 				case "init":
 					udtImporter.initSchoolYear(currentEntity);
+					break;
+				case "semaines":
+					udtImporter.initPeriods(currentEntity);
 					break;
 			}
 			currentEntity = null;
