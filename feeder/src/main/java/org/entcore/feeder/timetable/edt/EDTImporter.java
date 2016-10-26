@@ -143,16 +143,6 @@ public class EDTImporter extends AbstractTimetableImporter {
 				slots.put(s.getString("Numero"), new Slot(
 						s.getString("LibelleHeureDebut"), s.getString("LibelleHeureFin"), slotDuration));
 			}
-
-//			if (!(o instanceof JsonObject) || !"0".equals(((JsonObject) o).getString("Numero"))) continue;
-//			String[] startHour = ((JsonObject) o).getString("LibelleHeureDebut").split(":");
-//			if (startHour.length == 3) {
-//				startDateWeek1 = startDateWeek1
-//						.plusHours(Integer.parseInt(startHour[0]))
-//						.plusMinutes(Integer.parseInt(startHour[1]))
-//						.plusSeconds(Integer.parseInt(startHour[2]));
-//				break;
-//			}
 		}
 	}
 
@@ -428,14 +418,15 @@ public class EDTImporter extends AbstractTimetableImporter {
 		final int day = Integer.parseInt(entity.getString("Jour"));
 		final int startPlace = Integer.parseInt(entity.getString("NumeroPlaceDebut"));
 		final int placesNumber = Integer.parseInt(entity.getString("NombrePlaces"));
-		final DateTime startDate = startDateWeek1.plusWeeks(startCourseWeek - 1)
-				.plusDays(day - 1).plusMinutes(startPlace * slotDuration);
+		DateTime startDate = startDateWeek1.plusWeeks(startCourseWeek - 1).plusDays(day - 1);
+		DateTime endDate = startDate.plusWeeks(endCourseWeek - startCourseWeek);
+		startDate = startDate.plusSeconds(slots.get(entity.getString("NumeroPlaceDebut")).getStart());
+		endDate = endDate.plusSeconds(slots.get(String.valueOf((startPlace + placesNumber - 1))).getEnd());
 		final JsonObject c = new JsonObject()
 				.putString("structureId", structureId)
 				.putString("subjectId", subjects.get(entity.getArray("Matiere").<JsonObject>get(0).getString(IDENT)))
 				.putString("startDate", startDate.toString())
-				.putString("endDate", startDate.plusWeeks(endCourseWeek - startCourseWeek)
-						.plusMinutes(placesNumber * slotDuration).toString())
+				.putString("endDate", endDate.toString())
 				.putNumber("dayOfWeek", startDate.getDayOfWeek());
 
 		for (int i = 0; i < enabledItems.size(); i++) {
@@ -467,9 +458,6 @@ public class EDTImporter extends AbstractTimetableImporter {
 						}
 						groupsArray.add(groups.get(ident).getString("Nom"));
 						break;
-//					case "PartieDeClasse":
-//
-//						break;
 					case "Materiel":
 						JsonArray equipmentsArray = c.getArray("equipmentLabels");
 						if (equipmentsArray == null) {

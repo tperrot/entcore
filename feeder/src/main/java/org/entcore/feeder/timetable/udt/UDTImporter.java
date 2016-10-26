@@ -64,7 +64,6 @@ public class UDTImporter extends AbstractTimetableImporter {
 	private Map<String, String> regroup = new HashMap<>();
 	private Map<String, List<JsonObject>> lfts = new HashMap<>();
 	private HashMap<Integer, Integer> periods = new HashMap<>(); // key : start, value : end period
-	private HashMap<Integer, Integer> subperiods = new HashMap<>();
 	private int maxYearWeek;
 	private Vertx vertx;
 	private DateTime startDateStudents;
@@ -151,7 +150,6 @@ public class UDTImporter extends AbstractTimetableImporter {
 		startDateWeek1 = startDateStudents
 				.withWeekOfWeekyear(Integer.parseInt(currentEntity.getString("premiere_semaine_ISO")))
 				.withDayOfWeek(1);
-		log.info("startDateweek1 : " + startDateWeek1.toString());
 		slotDuration = Integer.parseInt(currentEntity.getString("duree_seq")) / 2;
 		DateTime h = startDateWeek1;
 		while (h.isBefore(startDateStudents)) {
@@ -393,9 +391,6 @@ public class UDTImporter extends AbstractTimetableImporter {
 	}
 
 	private void generateCourses(int periodWeek) {
-		log.info("generate courses : period " + periodWeek);
-//		int startPeriod = periodWeek;
-//		int endPeriod = getNextHolidaysWeek(periodWeek);
 		for (Map.Entry<Integer, Integer> e : getNextHolidaysWeek(periodWeek).entrySet()) {
 			for (List<JsonObject> c : lfts.values()) {
 				Collections.sort(c, new LftComparator());
@@ -429,9 +424,7 @@ public class UDTImporter extends AbstractTimetableImporter {
 			if (startPeriod < 1 && !holidaysWeeks.contains(j)) {
 				startPeriod = j;
 			}
-			log.info("p : " +periodWeek + " : " + j);
 			if (startPeriod > 0 && holidaysWeeks.contains(j)) {
-				log.info("" + startPeriod + " - " + j);
 				p.put(startPeriod, j);
 				startPeriod = 0;
 			}
