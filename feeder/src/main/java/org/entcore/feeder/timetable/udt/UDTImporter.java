@@ -25,7 +25,6 @@ import org.entcore.feeder.timetable.Slot;
 import org.entcore.feeder.utils.JsonUtil;
 import org.entcore.feeder.utils.Report;
 import org.joda.time.DateTime;
-import org.joda.time.Weeks;
 import org.joda.time.format.DateTimeFormat;
 import org.vertx.java.core.AsyncResult;
 import org.vertx.java.core.AsyncResultHandler;
@@ -57,6 +56,7 @@ public class UDTImporter extends AbstractTimetableImporter {
 	public static final String UDT = "UDT";
 	public static final String CODE = "code";
 	private static final Pattern filenameWeekPatter = Pattern.compile("UDCal_[0-9]{2}_([0-9]{2})\\.xml$");
+	public static final String DATE_FORMAT = "dd/MM/yyyy";
 	private int year;
 	private long endStudents;
 	private Map<String, Set<String>> coens = new HashMap<>();
@@ -64,9 +64,12 @@ public class UDTImporter extends AbstractTimetableImporter {
 	private Map<String, String> regroup = new HashMap<>();
 	private Map<String, List<JsonObject>> lfts = new HashMap<>();
 	private HashMap<Integer, Integer> periods = new HashMap<>(); // key : start, value : end period
+	private HashMap<Integer, Integer> subperiods = new HashMap<>();
 	private int maxYearWeek;
 	private Vertx vertx;
 	private DateTime startDateStudents;
+	private Set<DateTime> holidays = new HashSet<>();
+	private Set<Integer> holidaysWeeks = new HashSet<>();
 
 	public UDTImporter(Vertx vertx, String uai, String acceptLanguage) {
 		super(uai, acceptLanguage);
@@ -136,22 +139,26 @@ public class UDTImporter extends AbstractTimetableImporter {
 	}
 
 	public void setEndStudents(String endStudents) {
-		this.endStudents = DateTime.parse(endStudents, DateTimeFormat.forPattern("dd/MM/yyyy")).getMillis();
+		this.endStudents = DateTime.parse(endStudents, DateTimeFormat.forPattern(DATE_FORMAT)).getMillis();
 	}
 
 	public void setStartDateStudents(String startDateStudents) {
-		this.startDateStudents = DateTime.parse(startDateStudents, DateTimeFormat.forPattern("dd/MM/yyyy"));
+		this.startDateStudents = DateTime.parse(startDateStudents, DateTimeFormat.forPattern(DATE_FORMAT));
 		maxYearWeek = this.startDateStudents.weekOfWeekyear().withMaximumValue().weekOfWeekyear().get();
 	}
 
 	void initSchoolYear(JsonObject currentEntity) {
-//		startDateWeek1 = new DateTime(year, 1, 1, 0, 0).withWeekOfWeekyear(
-//				Integer.parseInt(currentEntity.getString("premiere_semaine_ISO"))).;
 		startDateWeek1 = startDateStudents
 				.withWeekOfWeekyear(Integer.parseInt(currentEntity.getString("premiere_semaine_ISO")))
 				.withDayOfWeek(1);
 		log.info("startDateweek1 : " + startDateWeek1.toString());
 		slotDuration = Integer.parseInt(currentEntity.getString("duree_seq")) / 2;
+		DateTime h = startDateWeek1;
+		while (h.isBefore(startDateStudents)) {
+			holidays.add(h);
+			h = h.plusDays(1);
+			holidaysWeeks.add(h.getWeekOfWeekyear());
+		}
 	}
 
 	void initSchedule(JsonObject e) {
@@ -175,6 +182,18 @@ public class UDTImporter extends AbstractTimetableImporter {
 			}
 			periods.put(oldWeek, new DateTime(endStudents).getWeekOfWeekyear());
 		}
+	}
+
+
+	void initHolidays(JsonObject currentEntity) {
+		DateTime s = DateTime.parse(currentEntity.getString("debut"), DateTimeFormat.forPattern(DATE_FORMAT));
+		DateTime e = DateTime.parse(currentEntity.getString("fin"), DateTimeFormat.forPattern(DATE_FORMAT));
+		while (s.isBefore(e)) {
+			holidays.add(s);
+			s = s.plusDays(1);
+			holidaysWeeks.add(s.getWeekOfWeekyear());
+		}
+		holidays.add(e);
 	}
 
 	void addRoom(JsonObject currentEntity) {
@@ -237,7 +256,6 @@ public class UDTImporter extends AbstractTimetableImporter {
 	void addGroup(JsonObject currentEntity) {
 		final String id = currentEntity.getString("code_div") + currentEntity.getString(CODE);
 		groups.put(id, currentEntity);
-//		String name = currentEntity.getString("code_sts");
 		String name = currentEntity.getString("code_div") + " Gr " + currentEntity.getString(CODE);
 		if (isEmpty(name)) {
 			name = id;
@@ -296,7 +314,6 @@ public class UDTImporter extends AbstractTimetableImporter {
 				report.addError("unknown.group.mapping");
 				return;
 			}
-			//final String name = group.getString("code_sts");
 			final String name = group.getString("code_div") + " Gr " + group.getString(CODE);
 			txXDT.add(STUDENTS_TO_GROUPS, new JsonObject()
 					.putString("epj", epj)
@@ -351,49 +368,9 @@ public class UDTImporter extends AbstractTimetableImporter {
 		fichesT.put(id, currentEntity);
 	}
 
-//	public void addCourse(JsonObject entity) {
-//		try {
-//			final String div = entity.getString("div");
-//			if (isEmpty(div)) {
-//				report.addError("invalid.class");
-//				return;
-//			}
-//			final String fic = entity.getString("fic");
-//			if (isEmpty(fic)) {
-//				report.addError("invalid.fic");
-//				return;
-//			}
-//			final Slot slot = slots.get(fic.substring(0, 3));
-//			if (slot == null) {
-//				report.addError("invalid.slot");
-//				return;
-//			}
-//
-//			JsonObject c = currentCourses.get(div);
-//			if (c == null) {
-//				final DateTime startDate = startDateWeek1.plusDays(Integer.parseInt(fic.substring(0, 3)) - 1);
-//				c = new JsonObject()
-//						.putString("structureId", structureId)
-//						.putString("subjectId", subjects.get(entity.getString("mat")))
-//						.putString("startDate", startDateWeek1.plusSeconds(slot.getStart()).toString())
-////					.putString("endDate", startDate.plusWeeks(endCourseWeek - startCourseWeek)
-////							.plusMinutes(placesNumber * slotDuration).toString())
-//						.putNumber("dayOfWeek", startDate.getDayOfWeek())
-//						.putArray("roomLabels", new JsonArray().add(rooms.get("salle")))
-//						.putArray("teacherIds", new JsonArray().add(teachers.get("prof"))); // TODO add coens
-//				c.putString("tmpId", JsonUtil.checksum(c));
-//			} else {
-//				//if
-//			}
-//		} catch (Exception e) {
-//			report.addError(e.getMessage());
-//		}
-//	}
-
 	void addCourse(JsonObject entity) {
 		final String div = entity.getString("div");
 		if (isEmpty(div)) {
-		//	report.addError("invalid.class");
 			return;
 		}
 		final String fic = entity.getString("fic");
@@ -401,11 +378,6 @@ public class UDTImporter extends AbstractTimetableImporter {
 			report.addError("invalid.fic");
 			return;
 		}
-//		final Slot slot = slots.get(fic.substring(0, 3));
-//		if (slot == null) {
-//			report.addError("invalid.slot");
-//			return;
-//		}
 		final String tmpId = calculateTmpId(entity);
 		List<JsonObject> l = lfts.get(tmpId);
 		if (l == null) {
@@ -422,28 +394,53 @@ public class UDTImporter extends AbstractTimetableImporter {
 
 	private void generateCourses(int periodWeek) {
 		log.info("generate courses : period " + periodWeek);
-		for (List<JsonObject> c : lfts.values()) {
-			Collections.sort(c, new LftComparator());
-			String start = null;
-			int current = 0;
-			JsonObject previous = null;
-			for (JsonObject j : c) {
-				int val = Integer.parseInt(j.getString(CODE).substring(0, 3));
-				if (start == null) {
-					start = j.getString("fic");
-					current = val;
-				} else if ((++current) != val) {
-					persistCourse(generateCourse(start, previous.getString("fic"), previous, periodWeek));
-					start = j.getString("fic");
-					current = val;
+//		int startPeriod = periodWeek;
+//		int endPeriod = getNextHolidaysWeek(periodWeek);
+		for (Map.Entry<Integer, Integer> e : getNextHolidaysWeek(periodWeek).entrySet()) {
+			for (List<JsonObject> c : lfts.values()) {
+				Collections.sort(c, new LftComparator());
+				String start = null;
+				int current = 0;
+				JsonObject previous = null;
+				for (JsonObject j : c) {
+					int val = Integer.parseInt(j.getString(CODE).substring(0, 3));
+					if (start == null) {
+						start = j.getString("fic");
+						current = val;
+					} else if ((++current) != val) {
+						persistCourse(generateCourse(start, previous.getString("fic"), previous, e.getKey(), e.getValue()));
+						start = j.getString("fic");
+						current = val;
+					}
+					previous = j;
 				}
-				previous = j;
 			}
 		}
 		lfts.clear();
 	}
 
-	private JsonObject generateCourse(String start, String end, JsonObject entity, int periodWeek) {
+	private Map<Integer, Integer> getNextHolidaysWeek(int periodWeek) {
+		int endPeriod = periods.get(periodWeek);
+		int e = (endPeriod < startDateWeek1.getWeekOfWeekyear()) ? endPeriod + maxYearWeek : endPeriod;
+		int startPeriod = periodWeek;
+		Map<Integer, Integer> p = new HashMap<>();
+		for (int i = periodWeek; i < e; i++) {
+			int j = (i > maxYearWeek) ? i - maxYearWeek : i;
+			if (startPeriod < 1 && !holidaysWeeks.contains(j)) {
+				startPeriod = j;
+			}
+			log.info("p : " +periodWeek + " : " + j);
+			if (startPeriod > 0 && holidaysWeeks.contains(j)) {
+				log.info("" + startPeriod + " - " + j);
+				p.put(startPeriod, j);
+				startPeriod = 0;
+			}
+		}
+		p.put(startPeriod, endPeriod);
+		return p;
+	}
+
+	private JsonObject generateCourse(String start, String end, JsonObject entity, int periodWeek, int endPeriodWeek) {
 		JsonObject ficheTStart = fichesT.get(start);
 		JsonObject ficheTEnd = fichesT.get(end);
 		if (ficheTStart == null || ficheTEnd == null) {
@@ -460,12 +457,18 @@ public class UDTImporter extends AbstractTimetableImporter {
 		}
 		final int day = Integer.parseInt(ficheTStart.getString("jour"));
 		final int cpw = (periodWeek < startDateWeek1.getWeekOfWeekyear()) ? periodWeek + maxYearWeek : periodWeek;
-		final DateTime startDate = startDateWeek1.plusWeeks(cpw - startDateWeek1.getWeekOfWeekyear())
-				.plusDays(day - 1).plusSeconds(slotStart.getStart());
-		final int epw = periods.get(periodWeek);
-		final int cepw = (epw < startDateWeek1.getWeekOfWeekyear()) ? epw + maxYearWeek : epw;
-		final DateTime endDate = startDateWeek1.plusWeeks(cepw - startDateWeek1.getWeekOfWeekyear())
-				.plusDays(day - 1).plusSeconds(slotEnd.getEnd());
+		DateTime startDate = startDateWeek1.plusWeeks(cpw - startDateWeek1.getWeekOfWeekyear()).plusDays(day - 1);
+		while (holidays.contains(startDate)) {
+			startDate = startDate.plusWeeks(1);
+		}
+		startDate = startDate.plusSeconds(slotStart.getStart());
+		//final int epw = periods.get(periodWeek);
+		final int cepw = (endPeriodWeek < startDateWeek1.getWeekOfWeekyear()) ? endPeriodWeek + maxYearWeek : endPeriodWeek;
+		DateTime endDate = startDateWeek1.plusWeeks(cepw - startDateWeek1.getWeekOfWeekyear()).plusDays(day - 1);
+		while (holidays.contains(endDate)) {
+			endDate = endDate.minusWeeks(1);
+		}
+		endDate = endDate.plusSeconds(slotEnd.getEnd());
 		final Set<String> ce = coens.get(start);
 		JsonArray teacherIds;
 		if (ce != null && ce.size() > 0) {

@@ -80,6 +80,7 @@ public class UDTHandler extends DefaultHandler {
 			case "demi_seq":
 			case "init":
 			case "semaines":
+			case "fermeture":
 				currentEntityType = localName;
 				currentEntity = o;
 				break;
@@ -139,6 +140,9 @@ public class UDTHandler extends DefaultHandler {
 					break;
 				case "semaines":
 					udtImporter.initPeriods(currentEntity);
+					break;
+				case "fermeture":
+					udtImporter.initHolidays(currentEntity);
 					break;
 			}
 			currentEntity = null;
