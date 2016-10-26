@@ -25,6 +25,7 @@ import org.entcore.feeder.timetable.Slot;
 import org.entcore.feeder.utils.JsonUtil;
 import org.entcore.feeder.utils.Report;
 import org.joda.time.DateTime;
+import org.joda.time.Weeks;
 import org.joda.time.format.DateTimeFormat;
 import org.vertx.java.core.AsyncResult;
 import org.vertx.java.core.AsyncResultHandler;
@@ -63,7 +64,9 @@ public class UDTImporter extends AbstractTimetableImporter {
 	private Map<String, String> regroup = new HashMap<>();
 	private Map<String, List<JsonObject>> lfts = new HashMap<>();
 	private HashMap<Integer, Integer> periods = new HashMap<>(); // key : start, value : end period
+	private int maxYearWeek;
 	private Vertx vertx;
+	private DateTime startDateStudents;
 
 	public UDTImporter(Vertx vertx, String uai, String acceptLanguage) {
 		super(uai, acceptLanguage);
@@ -72,38 +75,47 @@ public class UDTImporter extends AbstractTimetableImporter {
 
 	@Override
 	public void launch(final AsyncResultHandler<Report> handler) throws Exception {
-		final String basePath = "/home/dboissin/Docs/EDT - UDT/UDT20160908/";
-		parse(basePath + "UDCal_24.xml");
-		parse(basePath + "semaines.xml");
-		parse(basePath + "UDCal_00.xml");
-		parse(basePath + "UDCal_03.xml");
-		parse(basePath + "UDCal_04.xml");
-		parse(basePath + "UDCal_05.xml");
-		parse(basePath + "UDCal_07.xml");
-		parse(basePath + "UDCal_08.xml");
-		parse(basePath + "UDCal_19.xml");
-		parse(basePath + "UDCal_13.xml");
-		parse(basePath + "UDCal_21.xml");
-		parse(basePath + "UDCal_23.xml");
-		parse(basePath + "UDCal_11.xml");
-		parse(basePath + "UDCal_12.xml");
-		generateCourses(startDateWeek1.getWeekOfWeekyear());
-		vertx.fileSystem().readDir(basePath, "UDCal_12_[0-9]+.xml", new Handler<AsyncResult<String[]>>() {
+		init(new AsyncResultHandler<Void>() {
 			@Override
-			public void handle(AsyncResult<String[]> event) {
-				if (event.succeeded() && event.result().length > 0) {
-					try {
-						for (String p : event.result()) {
-							parse(p);
-							Matcher m = filenameWeekPatter.matcher(p);
-							if (m.find()) {
-								generateCourses(Integer.parseInt(m.group(1)));
+			public void handle(AsyncResult<Void> event) {
+				try {
+					final String basePath = "/home/dboissin/Docs/EDT - UDT/UDT20160908/";
+					parse(basePath + "UDCal_24.xml");
+					parse(basePath + "UDCal_00.xml");
+					parse(basePath + "semaines.xml");
+					parse(basePath + "UDCal_03.xml");
+					parse(basePath + "UDCal_04.xml");
+					parse(basePath + "UDCal_05.xml");
+					parse(basePath + "UDCal_07.xml");
+					parse(basePath + "UDCal_08.xml");
+					parse(basePath + "UDCal_19.xml");
+					parse(basePath + "UDCal_13.xml");
+					parse(basePath + "UDCal_21.xml");
+					parse(basePath + "UDCal_23.xml");
+					parse(basePath + "UDCal_11.xml");
+					parse(basePath + "UDCal_12.xml");
+					generateCourses(startDateWeek1.getWeekOfWeekyear());
+					vertx.fileSystem().readDir(basePath, "UDCal_12_[0-9]+.xml", new Handler<AsyncResult<String[]>>() {
+						@Override
+						public void handle(AsyncResult<String[]> event) {
+							if (event.succeeded() && event.result().length > 0) {
+								try {
+									for (String p : event.result()) {
+										parse(p);
+										Matcher m = filenameWeekPatter.matcher(p);
+										if (m.find()) {
+											generateCourses(Integer.parseInt(m.group(1)));
+										}
+									}
+									commit(handler);
+								} catch (Exception e) {
+									handler.handle(new DefaultAsyncResult<Report>(e));
+								}
 							}
 						}
-						commit(handler);
-					} catch (Exception e) {
-						handler.handle(new DefaultAsyncResult<Report>(e));
-					}
+					});
+				} catch (Exception e) {
+					handler.handle(new DefaultAsyncResult<Report>(e));
 				}
 			}
 		});
@@ -127,15 +139,25 @@ public class UDTImporter extends AbstractTimetableImporter {
 		this.endStudents = DateTime.parse(endStudents, DateTimeFormat.forPattern("dd/MM/yyyy")).getMillis();
 	}
 
+	public void setStartDateStudents(String startDateStudents) {
+		this.startDateStudents = DateTime.parse(startDateStudents, DateTimeFormat.forPattern("dd/MM/yyyy"));
+		maxYearWeek = this.startDateStudents.weekOfWeekyear().withMaximumValue().weekOfWeekyear().get();
+	}
+
 	void initSchoolYear(JsonObject currentEntity) {
-		startDateWeek1 = new DateTime(year, 1, 1, 0, 0).withWeekOfWeekyear(
-				Integer.parseInt(currentEntity.getString("premiere_semaine_ISO")));
+//		startDateWeek1 = new DateTime(year, 1, 1, 0, 0).withWeekOfWeekyear(
+//				Integer.parseInt(currentEntity.getString("premiere_semaine_ISO"))).;
+		startDateWeek1 = startDateStudents
+				.withWeekOfWeekyear(Integer.parseInt(currentEntity.getString("premiere_semaine_ISO")))
+				.withDayOfWeek(1);
+		log.info("startDateweek1 : " + startDateWeek1.toString());
 		slotDuration = Integer.parseInt(currentEntity.getString("duree_seq")) / 2;
 	}
 
 	void initSchedule(JsonObject e) {
 		final String slotKey = e.getString("code_jour") + padLeft(e.getString(CODE), 2, '0') + e.getString("code_site");
-		slots.put(slotKey, new Slot(e.getString("hre_deb"), e.getString("hre_fin"), slotDuration));
+		Slot s = new Slot(e.getString("hre_deb"), e.getString("hre_fin"), slotDuration);
+		slots.put(slotKey, s);
 	}
 
 	void initPeriods(JsonObject currentEntity) {
@@ -206,7 +228,7 @@ public class UDTImporter extends AbstractTimetableImporter {
 	void addClasse(JsonObject currentEntity) {
 		final String id = currentEntity.getString(CODE);
 		classes.put(id, currentEntity);
-		final String ocn = currentEntity.getString("libelle");
+		final String ocn = getOrElse(currentEntity.getString("libelle"), id, false);
 		final String className = (classesMapping != null) ? getOrElse(classesMapping.getString(ocn), ocn, false) : ocn;
 		currentEntity.putString("className", className);
 		txXDT.add(UNKNOWN_CLASSES, new JsonObject().putString("UAI", UAI).putString("className", className));
@@ -379,17 +401,18 @@ public class UDTImporter extends AbstractTimetableImporter {
 			report.addError("invalid.fic");
 			return;
 		}
-		final Slot slot = slots.get(fic.substring(0, 3));
-		if (slot == null) {
-			report.addError("invalid.slot");
-			return;
-		}
+//		final Slot slot = slots.get(fic.substring(0, 3));
+//		if (slot == null) {
+//			report.addError("invalid.slot");
+//			return;
+//		}
 		final String tmpId = calculateTmpId(entity);
 		List<JsonObject> l = lfts.get(tmpId);
 		if (l == null) {
 			l = new ArrayList<>();
 			lfts.put(tmpId, l);
 		}
+		l.add(entity);
 	}
 
 	private String calculateTmpId(JsonObject entity) {
@@ -398,21 +421,26 @@ public class UDTImporter extends AbstractTimetableImporter {
 	}
 
 	private void generateCourses(int periodWeek) {
+		log.info("generate courses : period " + periodWeek);
 		for (List<JsonObject> c : lfts.values()) {
 			Collections.sort(c, new LftComparator());
 			String start = null;
 			int current = 0;
+			JsonObject previous = null;
 			for (JsonObject j : c) {
 				int val = Integer.parseInt(j.getString(CODE).substring(0, 3));
 				if (start == null) {
 					start = j.getString("fic");
 					current = val;
 				} else if ((++current) != val) {
-					persistCourse(generateCourse(start, j.getString("fic"), j, periodWeek));
-					start = null;
+					persistCourse(generateCourse(start, previous.getString("fic"), previous, periodWeek));
+					start = j.getString("fic");
+					current = val;
 				}
+				previous = j;
 			}
 		}
+		lfts.clear();
 	}
 
 	private JsonObject generateCourse(String start, String end, JsonObject entity, int periodWeek) {
@@ -431,8 +459,13 @@ public class UDTImporter extends AbstractTimetableImporter {
 			return null;
 		}
 		final int day = Integer.parseInt(ficheTStart.getString("jour"));
-		final DateTime startDate = startDateWeek1.plusWeeks(periodWeek - 1).plusDays(day - 1).plusSeconds(slotStart.getStart());
-		final DateTime endDate = startDateWeek1.plusWeeks(periods.get(periodWeek) - 1).plusDays(day - 1).plusSeconds(slotEnd.getEnd());
+		final int cpw = (periodWeek < startDateWeek1.getWeekOfWeekyear()) ? periodWeek + maxYearWeek : periodWeek;
+		final DateTime startDate = startDateWeek1.plusWeeks(cpw - startDateWeek1.getWeekOfWeekyear())
+				.plusDays(day - 1).plusSeconds(slotStart.getStart());
+		final int epw = periods.get(periodWeek);
+		final int cepw = (epw < startDateWeek1.getWeekOfWeekyear()) ? epw + maxYearWeek : epw;
+		final DateTime endDate = startDateWeek1.plusWeeks(cepw - startDateWeek1.getWeekOfWeekyear())
+				.plusDays(day - 1).plusSeconds(slotEnd.getEnd());
 		final Set<String> ce = coens.get(start);
 		JsonArray teacherIds;
 		if (ce != null && ce.size() > 0) {
@@ -440,15 +473,15 @@ public class UDTImporter extends AbstractTimetableImporter {
 		} else {
 			teacherIds = new JsonArray();
 		}
-		teacherIds.add(teachers.get("prof"));
+		teacherIds.add(teachers.get(entity.getString("prof")));
 
 		final JsonObject c = new JsonObject()
 				.putString("structureId", structureId)
-				.putString("subjectId", subjects.get(subjects.get(entity.getString("mat"))))
+				.putString("subjectId", subjects.get(entity.getString("mat")))
 				.putString("startDate", startDate.toString())
 				.putString("endDate", endDate.toString())
 				.putNumber("dayOfWeek", day)
-				.putArray("roomLabels", new JsonArray().add(rooms.get("salle")))
+				.putArray("roomLabels", new JsonArray().add(rooms.get(entity.getString("salle"))))
 				.putArray("teacherIds", teacherIds)
 				.putArray("classes", new JsonArray().add(classes.get(entity.getString("div")).getString("className")));
 		JsonArray groups;

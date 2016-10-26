@@ -47,6 +47,8 @@ public class UDTHandler extends DefaultHandler {
 			udtImporter.setYear(new String(ch, start, length));
 		} else if ("fin_eleve".equals(currentTag)) {
 			udtImporter.setEndStudents(new String(ch, start, length));
+		} else if ("debut_eleve".equals(currentTag)) {
+			udtImporter.setStartDateStudents(new String(ch, start, length));
 		}
 	}
 

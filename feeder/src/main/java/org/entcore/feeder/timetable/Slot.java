@@ -19,13 +19,15 @@
 
 package org.entcore.feeder.timetable;
 
+import static fr.wseduc.webutils.Utils.isNotEmpty;
+
 public class Slot {
 
 	private final int start;
 	private int end;
 
 	public Slot(String start, String end, int slotDuration) {
-		if (start != null) {
+		if (isNotEmpty(start)) {
 			final String [] h = start.split("(h|:)");
 			if (h.length == 3) {
 				this.start = Integer.parseInt(h[0]) * 3600 + Integer.parseInt(h[1]) * 60 + Integer.parseInt(h[2]);
@@ -37,7 +39,7 @@ public class Slot {
 		} else {
 			this.start = 0;
 		}
-		if (end != null) {
+		if (isNotEmpty(end)) {
 			final String [] h = end.split("(h|:)");
 			if (h.length == 3) {
 				this.end = Integer.parseInt(h[0]) * 3600 + Integer.parseInt(h[1]) * 60 + Integer.parseInt(h[2]);
@@ -61,6 +63,11 @@ public class Slot {
 
 	public int getEnd() {
 		return end;
+	}
+
+	@Override
+	public String toString() {
+		return "" + start + " -> " + end;
 	}
 
 }

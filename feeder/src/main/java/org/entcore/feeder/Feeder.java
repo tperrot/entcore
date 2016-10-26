@@ -37,6 +37,7 @@ import org.entcore.feeder.timetable.edt.EDTImporter;
 import org.entcore.feeder.timetable.edt.EDTUtils;
 import org.entcore.feeder.export.Exporter;
 import org.entcore.feeder.export.eliot.EliotExporter;
+import org.entcore.feeder.timetable.udt.UDTImporter;
 import org.entcore.feeder.utils.*;
 import org.vertx.java.busmods.BusModBase;
 import org.vertx.java.core.AsyncResult;
@@ -252,6 +253,23 @@ public class Feeder extends BusModBase implements Handler<Message<JsonObject>> {
 								logger.info("edt success");
 							} else {
 								logger.info("edt fail", event.cause());
+							}
+							logger.info("end");
+						}
+					});
+				} catch (Exception e) {
+					logger.error(e.getMessage(), e);
+				}
+				break;
+			case "udt":
+				try {
+					new UDTImporter(vertx, "5555040T", "fr").launch(new AsyncResultHandler<Report>() {
+						@Override
+						public void handle(AsyncResult<Report> event) {
+							if(event.succeeded()) {
+								logger.info("udt success");
+							} else {
+								logger.info("udt fail", event.cause());
 							}
 							logger.info("end");
 						}
