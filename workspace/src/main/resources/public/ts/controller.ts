@@ -14,24 +14,13 @@
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+import { ng, idiom as lang, template, notify } from 'entcore/entcore';
+import { _ } from 'entcore/libs/underscore/underscore';
 
-routes.define(function($routeProvider) {
-	$routeProvider
-		.when('/folder/:folderId', {
-			action: 'viewFolder'
-		})
-		.when('/shared/folder/:folderId', {
-	  		action: 'viewSharedFolder'
-		})
-		.when('/shared', {
-		  	action: 'openShared'
-		})
-		.otherwise({
-		  	redirectTo: '/'
-		})
-});
+import { Document, quota } from 'entcore/workspace';
 
-function Workspace($scope, date, notify, _, route, $rootScope, $timeout, template, model, lang){
+export let workspaceController = ng.controller('WorkspaceController', [
+	'$scope', 'route', 'model', '$rootScope', function ($scope, route, $rootScope, model){
 
 	route({
 		viewFolder: function(params){
@@ -130,10 +119,6 @@ function Workspace($scope, date, notify, _, route, $rootScope, $timeout, templat
 	$scope.folder = { children: [ { name: 'documents' }, { name: 'shared' }, { name: 'appDocuments' }, { name: 'trash', children: [] }] };
 	$scope.users = [];
 	$scope.me = model.me;
-
-	$scope.maxQuota = 8;
-	$scope.usedQuota = 4;
-
 	$scope.folderTreeTemplate = 'folder-content';
 	$scope.quota = model.quota;
 
@@ -285,10 +270,8 @@ function Workspace($scope, date, notify, _, route, $rootScope, $timeout, templat
 	$scope.toTrashConfirm = function(url){
 		template.open('lightbox', 'confirm');
 		$scope.confirm = function(){
-			$scope.selectedDocuments().forEach(function(document){
-				http().put(url + "/" + document._id);
-			});
-			$scope.openedFolder.content = _.reject($scope.openedFolder.content, function(doc){ return doc.selected; });
+			$scope.openedFolder.toTrashSelection();
+			
 
 			notify.info('workspace.removed.message');
 			template.close('lightbox');
@@ -338,10 +321,7 @@ function Workspace($scope, date, notify, _, route, $rootScope, $timeout, templat
 			$scope.openedFolder.content = _.reject($scope.openedFolder.content, function(item){
 				return item === document;
 			});
-			http().delete('document/' + document._id)
-				.done(function(){
-					model.quota.sync();
-				})
+			http().delete('document/' + document._id);
 		});
 
 		$scope.selectedFolders().forEach(function(folder){
@@ -1188,25 +1168,7 @@ function Workspace($scope, date, notify, _, route, $rootScope, $timeout, templat
 	}
 
 	//Given a data size in bytes, returns a more "user friendly" representation.
-	$scope.getAppropriateDataUnit = function(bytes){
-		var order = 0
-		var orders = {
-			0: lang.translate("byte"),
-			1: "Ko",
-			2: "Mo",
-			3: "Go",
-			4: "To"
-		}
-		var finalNb = bytes
-		while(finalNb >= 1024 && order < 4){
-			finalNb = finalNb / 1024
-			order++
-		}
-		return {
-			nb: finalNb,
-			order: orders[order]
-		}
-	}
+	$scope.getAppropriateDataUnit = quota.appropriateDataUnit;
 
 	$scope.formatDocumentSize = function(size){
 		var formattedData = $scope.getAppropriateDataUnit(size)
@@ -1249,7 +1211,7 @@ function Workspace($scope, date, notify, _, route, $rootScope, $timeout, templat
 							undefined
 
 			if(!dataField || targetItem.name === 'shared' || targetItem.name === 'appDocuments')
-				return false
+				return undefined
 
 			return dataField
 		}
@@ -1303,13 +1265,7 @@ function Workspace($scope, date, notify, _, route, $rootScope, $timeout, templat
 	}
 
 	$scope.refreshHistory = function(doc, hook){
-		http().get("document/"+doc._id+"/revisions").done(function(revisions){
-			doc.revisions = revisions
-			if(typeof hook === 'function'){
-				hook()
-			}
-			$scope.$apply()
-		})
+		doc.refreshHistory(hook);
 	}
 
 	$scope.openHistory = function(document){
@@ -1353,7 +1309,6 @@ function Workspace($scope, date, notify, _, route, $rootScope, $timeout, templat
 
 	$scope.deleteRevision = function(revision){
 		http().delete("document/"+revision.documentId+"/revision/"+revision._id).done(function(){
-			$('.tooltip').remove()
 			$scope.openHistory($scope.targetDocument)
 			model.quota.sync();
 		})
