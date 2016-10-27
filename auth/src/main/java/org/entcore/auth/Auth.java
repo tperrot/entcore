@@ -33,6 +33,7 @@ import org.entcore.auth.services.OpenIdConnectServiceProvider;
 import org.entcore.auth.services.impl.DefaultConfigurationService;
 import org.entcore.auth.services.impl.DefaultOpendIdConnectService;
 import org.entcore.auth.services.impl.DefaultServiceProviderFactory;
+import org.entcore.auth.services.impl.FranceConnectServiceProvider;
 import org.entcore.auth.users.DefaultUserAuthAccount;
 import org.entcore.auth.users.UserAuthAccount;
 import org.entcore.common.events.EventStore;
@@ -53,6 +54,8 @@ import org.vertx.java.core.shareddata.ConcurrentSharedMap;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+
+import static fr.wseduc.webutils.Utils.isNotEmpty;
 
 public class Auth extends BaseServer {
 
@@ -118,19 +121,24 @@ public class Auth extends BaseServer {
 			final OpenIdConnectController openIdConnectController = new OpenIdConnectController();
 			openIdConnectController.setEventStore(eventStore);
 			openIdConnectController.setUserAuthAccount(userAuthAccount);
-			JWT.listCertificates(vertx, openidFederate.getString("certs"), new Handler<JsonObject>() {
-				@Override
-				public void handle(JsonObject certs) {
-					openIdConnectController.setCertificates(certs);
-				}
-			});
+			openIdConnectController.setSignKey((String) vertx.sharedData().getMap("server").get("signKey"));
+			openIdConnectController.setBasicToGetToken(openidFederate.getBoolean("basic-to-get-token", true)); // TODO move in oic
+			final String certsPath = openidFederate.getString("certs");
+			if (isNotEmpty(certsPath)) {
+				JWT.listCertificates(vertx, certsPath, new Handler<JsonObject>() {
+					@Override
+					public void handle(JsonObject certs) {
+						openIdConnectController.setCertificates(certs);
+					}
+				});
+			}
 			JsonArray clients = openidFederate.getArray("clients");
 			if (clients != null) {
 				for (Object o: clients) {
 					if (!(o instanceof JsonObject)) continue;
 					JsonObject c = (JsonObject) o;
 					try {
-						openIdConnectController.addClient(c.getString("domain"), new OpenIdConnectClient(
+						OpenIdConnectClient oic = new OpenIdConnectClient(
 								new URI(c.getString("uri")),
 								c.getString("clientId"),
 								c.getString("secret"),
@@ -140,14 +148,21 @@ public class Auth extends BaseServer {
 								vertx,
 								16,
 								c.getString("certsUri")
-						));
+						);
+						oic.setUserInfoUrn(c.getString("userInfoUrn"));
+						openIdConnectController.addClient(c.getString("domain"), oic);
 					} catch (URISyntaxException e) {
 						log.error("Invalid openid server uri", e);
 					}
 				}
 			}
-			DefaultOpendIdConnectService provider = new DefaultOpendIdConnectService(openidFederate.getString("iss"));
-			provider.setSetFederated(openidFederate.getBoolean("set-federated", true));
+			OpenIdConnectServiceProvider provider;
+			if ("France-Connect".equals(openidFederate.getString("provider"))) {
+				provider = new FranceConnectServiceProvider(openidFederate.getString("iss"));
+			} else {
+				provider = new DefaultOpendIdConnectService(openidFederate.getString("iss"));
+				((DefaultOpendIdConnectService) provider).setSetFederated(openidFederate.getBoolean("set-federated", true));
+			}
 			openIdConnectController.setOpenIdConnectServiceProvider(provider);
 			openIdConnectController.setSubMapping(openidFederate.getBoolean("authorizeSubMapping", false));
 			addController(openIdConnectController);

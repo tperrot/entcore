@@ -42,15 +42,17 @@ public class FranceConnectServiceProvider implements OpenIdConnectServiceProvide
 	private static final String QUERY_PIVOT_FC =
 			"MATCH (u:User) WHERE (lower(u.lastName) = lower({family_name}) OR lower(u.lastName) = lower({preferred_username})) " +
 			"AND lower({given_name}) CONTAINS lower(u.firstName) AND u.birthDate = {birthdate} AND NOT(HAS(u.subFC)) " +
-			"SET u.subFC = {sub}, u.federated = true " + AbstractSSOProvider.RETURN_QUERY;
+			"SET u.subFC = {sub}, u.federated = true " +
+			"WITH u " + AbstractSSOProvider.RETURN_QUERY;
 	private static final String QUERY_MAPPING_FC =
 			"MATCH (n:User {login:{login}}) " +
-			"WHERE NOT(HAS(u.subFC)) " +
+			"WHERE NOT(HAS(n.subFC)) " +
 			"RETURN n.password as password, n.activationCode as activationCode ";
 	private static final String QUERY_SET_MAPPING_FC =
-			"MATCH (n:User {login:{login}}) " +
+			"MATCH (u:User {login:{login}}) " +
 			"WHERE NOT(HAS(u.subFC)) " +
-			"SET u.subFC = {sub}, u.federated = true " + AbstractSSOProvider.RETURN_QUERY;
+			"SET u.subFC = {sub}, u.federated = true " +
+			"WITH u " + AbstractSSOProvider.RETURN_QUERY;
 
 	public FranceConnectServiceProvider(String iss) {
 		this.iss = iss;
@@ -65,7 +67,7 @@ public class FranceConnectServiceProvider implements OpenIdConnectServiceProvide
 				public void handle(final Either<String, JsonObject> event) {
 					if (event.isRight() && event.right().getValue().getBoolean("blockedProfile", false)) {
 						handler.handle(new Either.Left<String, JsonElement>("blocked.profile"));
-					} else if (event.isRight()) {
+					} else if (event.isRight() && event.right().getValue().size() > 0) {
 						handler.handle(new Either.Right<String, JsonElement>(event.right().getValue()));
 					} else {
 						federateWithPivot(payload, handler);
@@ -78,12 +80,15 @@ public class FranceConnectServiceProvider implements OpenIdConnectServiceProvide
 	}
 
 	private void federateWithPivot(JsonObject payload, final Handler<Either<String, JsonElement>> handler) {
+		if (!payload.containsField("preferred_username")) {
+			payload.putString("preferred_username", "");
+		}
 		neo4j.execute(QUERY_PIVOT_FC, payload, validUniqueResultHandler(new Handler<Either<String, JsonObject>>() {
 			@Override
 			public void handle(final Either<String, JsonObject> event) {
 				if (event.isRight() && event.right().getValue().getBoolean("blockedProfile", false)) {
 					handler.handle(new Either.Left<String, JsonElement>("blocked.profile"));
-				} else if (event.isRight()) {
+				} else if (event.isRight() && event.right().getValue().size() > 0) {
 					handler.handle(new Either.Right<String, JsonElement>(event.right().getValue()));
 				} else {
 					handler.handle(new Either.Left<String, JsonElement>(UNRECOGNIZED_USER_IDENTITY));
