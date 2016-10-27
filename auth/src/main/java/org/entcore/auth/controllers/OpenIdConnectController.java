@@ -45,7 +45,6 @@ public class OpenIdConnectController extends AbstractFederateController {
 	private OpenIdConnectServiceProvider openIdConnectServiceProvider;
 	private JsonObject certificates = new JsonObject();
 	private boolean subMapping;
-	private boolean basicToGetToken;
 
 	@Get("/openid/certs")
 	public void certs(HttpServerRequest request) {
@@ -72,7 +71,12 @@ public class OpenIdConnectController extends AbstractFederateController {
 			forbidden(request, "invalid_state");
 			return;
 		}
-		oic.authorizationCodeToken(request, state, basicToGetToken, new Handler<JsonObject>() {
+		final String nonce = CookieHelper.getInstance().getSigned("nonce", request);
+		if (nonce == null) {
+			forbidden(request, "invalid_replay");
+			return;
+		}
+		oic.authorizationCodeToken(request, state, nonce, new Handler<JsonObject>() {
 			@Override
 			public void handle(final JsonObject payload) {
 				if (payload != null) {
@@ -167,10 +171,6 @@ public class OpenIdConnectController extends AbstractFederateController {
 
 	public void setSubMapping(boolean subMapping) {
 		this.subMapping = subMapping;
-	}
-
-	public void setBasicToGetToken(boolean basicToGetToken) {
-		this.basicToGetToken = basicToGetToken;
 	}
 
 }

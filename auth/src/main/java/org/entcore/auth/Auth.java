@@ -122,7 +122,6 @@ public class Auth extends BaseServer {
 			openIdConnectController.setEventStore(eventStore);
 			openIdConnectController.setUserAuthAccount(userAuthAccount);
 			openIdConnectController.setSignKey((String) vertx.sharedData().getMap("server").get("signKey"));
-			openIdConnectController.setBasicToGetToken(openidFederate.getBoolean("basic-to-get-token", true)); // TODO move in oic
 			final String certsPath = openidFederate.getString("certs");
 			if (isNotEmpty(certsPath)) {
 				JWT.listCertificates(vertx, certsPath, new Handler<JsonObject>() {
@@ -150,6 +149,7 @@ public class Auth extends BaseServer {
 								c.getString("certsUri")
 						);
 						oic.setUserInfoUrn(c.getString("userInfoUrn"));
+						oic.setBasic(c.getBoolean("basic-to-get-token", true));
 						openIdConnectController.addClient(c.getString("domain"), oic);
 					} catch (URISyntaxException e) {
 						log.error("Invalid openid server uri", e);
