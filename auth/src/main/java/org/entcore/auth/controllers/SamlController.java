@@ -104,48 +104,32 @@ public class SamlController extends AbstractFederateController {
 
 	@Get("/saml/slo")
 	public void slo(final HttpServerRequest request) {
-		final String c = request.params().get("callback");
-		UserUtils.getUserInfos(eb, request, new Handler<UserInfos>() {
+		sloUser(request);
+	}
+
+	@Override
+	protected void afterDropSession(JsonObject event, final HttpServerRequest request, UserInfos user, final String c) {
+		request.headers().remove("Cookie");
+		event.putString("action", "generate-slo-request");
+		event.putString("IDP", (String) user.getOtherProperties().get("federatedIDP"));
+		if (log.isDebugEnabled()) {
+			log.debug("Session metadata : " + event.encodePrettily());
+		}
+		vertx.eventBus().send("saml", event, new Handler<Message<JsonObject>>() {
 			@Override
-			public void handle(final UserInfos user) {
-				if (user != null && user.getFederated()) {
-					final String sessionId = CookieHelper.getInstance().getSigned("oneSessionId", request);
-					UserUtils.deleteSessionWithMetadata(eb, sessionId, new Handler<JsonObject>() {
-						@Override
-						public void handle(JsonObject event) {
-							if (event != null) {
-								CookieHelper.set("oneSessionId", "", 0l, request);
-								request.headers().remove("Cookie");
-								event.putString("action", "generate-slo-request");
-								event.putString("IDP", (String) user.getOtherProperties().get("federatedIDP"));
-								if (log.isDebugEnabled()) {
-									log.debug("Session metadata : " + event.encodePrettily());
-								}
-								vertx.eventBus().send("saml", event, new Handler<Message<JsonObject>>() {
-									@Override
-									public void handle(Message<JsonObject> event) {
-										if (log.isDebugEnabled()) {
-											log.debug("slo request : " + event.body().encodePrettily());
-										}
-										String slo = event.body().getString("slo");
-										if (c != null && !c.isEmpty()) {
-											try {
-												slo = c + URLEncoder.encode(slo, "UTF-8");
-											} catch (UnsupportedEncodingException e) {
-												log.error(e.getMessage(), e);
-											}
-										}
-										AuthController.logoutCallback(request, slo, container, eb);
-									}
-								});
-							} else {
-								AuthController.logoutCallback(request, c, container, eb);
-							}
-						}
-					});
-				} else {
-					AuthController.logoutCallback(request, c, container, eb);
+			public void handle(Message<JsonObject> event) {
+				if (log.isDebugEnabled()) {
+					log.debug("slo request : " + event.body().encodePrettily());
 				}
+				String slo = event.body().getString("slo");
+				if (c != null && !c.isEmpty()) {
+					try {
+						slo = c + URLEncoder.encode(slo, "UTF-8");
+					} catch (UnsupportedEncodingException e) {
+						log.error(e.getMessage(), e);
+					}
+				}
+				AuthController.logoutCallback(request, slo, container, eb);
 			}
 		});
 	}
