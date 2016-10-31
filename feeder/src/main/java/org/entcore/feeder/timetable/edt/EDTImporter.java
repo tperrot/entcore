@@ -440,7 +440,7 @@ public class EDTImporter extends AbstractTimetableImporter {
 							teachersArray = new JsonArray();
 							c.putArray("teacherIds", teachersArray);
 						}
-						teachersArray.add(personnels.get(ident));
+						teachersArray.add(teachers.get(ident));
 						break;
 					case "Classe":
 						JsonArray classesArray = c.getArray("classes");

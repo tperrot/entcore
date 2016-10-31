@@ -137,7 +137,8 @@ public class Feeder extends BusModBase implements Handler<Message<JsonObject>> {
 		}
 		Validator.initLogin(neo4j, vertx);
 		manual = new ManualFeeder(neo4j);
-		duplicateUsers = new DuplicateUsers(container.config().getArray("duplicateSources"));
+		duplicateUsers = new DuplicateUsers(container.config().getArray("duplicateSources"),
+				container.config().getBoolean("timetable", true));
 		vertx.eventBus().registerLocalHandler(
 				container.config().getString("address", FEEDER_ADDRESS), this);
 		switch (container.config().getString("exporter", "")) {
@@ -243,6 +244,14 @@ public class Feeder extends BusModBase implements Handler<Message<JsonObject>> {
 				break;
 			case "mark-duplicates" :
 				duplicateUsers.markDuplicates(message);
+				break;
+			case "automerge-duplicates" :
+				duplicateUsers.autoMergeDuplicatesInStructure(new AsyncResultHandler<JsonArray>() {
+					@Override
+					public void handle(AsyncResult<JsonArray> event) {
+						logger.info("auto merged : " + event.succeeded());
+					}
+				});
 				break;
 			case "edt":
 				try {
@@ -524,13 +533,18 @@ public class Feeder extends BusModBase implements Handler<Message<JsonObject>> {
 									storeImportedEvent();
 									duplicateUsers.markDuplicates(new Handler<JsonObject>() {
 										@Override
-										public void handle(JsonObject event) {
-											applyComRules(new VoidHandler() {
+										public void handle(final JsonObject event) {
+											duplicateUsers.autoMergeDuplicatesInStructure(new AsyncResultHandler<JsonArray>() {
 												@Override
-												protected void handle() {
-													if (config.getBoolean("notify-apps-after-import", true)) {
-														ApplicationUtils.afterImport(eb);
-													}
+												public void handle(AsyncResult<JsonArray> mergedUsers) {
+													applyComRules(new VoidHandler() {
+														@Override
+														protected void handle() {
+															if (config.getBoolean("notify-apps-after-import", true)) {
+																ApplicationUtils.afterImport(eb);
+															}
+														}
+													});
 												}
 											});
 										}

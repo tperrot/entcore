@@ -261,4 +261,37 @@ public abstract class AbstractTimetableImporter implements TimetableImporter {
 
 	protected abstract String getTeacherMappingAttribute();
 
+	public static void updateMergedUsers(JsonArray mergedUsers) {
+		if (mergedUsers == null) return;
+		long now = System.currentTimeMillis();
+		for (Object o: mergedUsers) {
+			if (o instanceof JsonObject) {
+				final JsonObject j = (JsonObject) o;
+				updateMergedUsers(j, now);
+			} else if (o instanceof JsonArray) {
+				final JsonArray a = (JsonArray) o;
+				if (a.size() > 0) {
+					updateMergedUsers(a.<JsonObject>get(0), now);
+				}
+			}
+		}
+	}
+
+	private static void updateMergedUsers(JsonObject j, long now) {
+		final String oldId = j.getString("oldId");
+		final String id = j.getString("id");
+		final String profile = j.getString("profile");
+		if (isEmpty(oldId) || isEmpty(id) || (!"Teacher".equals(profile) && !"Personnel".equals(profile))) {
+			return;
+		}
+		final JsonObject query = new JsonObject();
+		final JsonObject modifier = new JsonObject();
+		final String pl = profile.toLowerCase();
+		query.putString(pl + "Ids", oldId);
+		modifier.putObject("$set", new JsonObject()
+				.putString(pl + "Ids.$", id)
+				.putNumber("modified", now));
+		MongoDb.getInstance().update(COURSES, query, modifier, false, true);
+	}
+
 }
