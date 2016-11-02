@@ -92,6 +92,7 @@ project(':common') {
     compile "fr.wseduc:web-utils:$webUtilsVersion"
     compile "fr.wseduc:mongodb-helper:$mongodbHelperVersion"
     compile "fr.wseduc:vertx-swift-client:$vertxSwiftClientVersion"
+    compile "joda-time:joda-time:$jodaTimeVersion"
   }
 }
 
@@ -168,7 +169,6 @@ project(':feeder') {
     compile "net.sf.opencsv:opencsv:$opencsvVersion"
     compile "com.googlecode.juniversalchardet:juniversalchardet:$juniversalchardetVersion"
     compile "org.apache.commons:commons-lang3:$commonsLangVersion"
-    compile "joda-time:joda-time:$jodaTimeVersion"
   }
 }
 
