@@ -30,6 +30,8 @@ import org.vertx.java.core.json.JsonObject;
 import java.util.Map;
 import java.util.Set;
 
+import static fr.wseduc.webutils.Utils.isNotEmpty;
+
 public class PersEducNat extends AbstractUser {
 
 	private final Validator personnelValidator = new Validator("dictionary/schema/Personnel.json");
@@ -154,6 +156,11 @@ public class PersEducNat extends AbstractUser {
 									.putString("class", structClass[1]);
 							transactionHelper.add(query, p);
 							classes.add(structClass[1]);
+							if (isNotEmpty(structClass[2])) {
+								String q2 =
+										"MATCH (u:User {externalId : {userExternalId}}), (f:FieldOfStudy {externalId:{feId}}) " +
+										"MERGE u-[:TEACHES]->f "
+							}
 						}
 					}
 					String q =

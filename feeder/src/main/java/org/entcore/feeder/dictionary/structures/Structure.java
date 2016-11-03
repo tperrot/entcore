@@ -191,32 +191,6 @@ public class Structure {
 		getTransaction().add(query, params);
 	}
 
-	public void linkClassFieldOfStudy(String classExternalId, String fieldOfStudyExternalId) {
-		String query =
-				"MATCH (s:Structure { externalId : {externalId}})" +
-				"<-[:BELONGS]-(c:Class { externalId : {classExternalId}}), " +
-				"(f:FieldOfStudy { externalId : {fieldOfStudyExternalId}}) " +
-				"CREATE UNIQUE c-[:TEACHES]->f";
-		JsonObject params = new JsonObject()
-				.putString("externalId", externalId)
-				.putString("classExternalId", classExternalId)
-				.putString("fieldOfStudyExternalId", fieldOfStudyExternalId);
-		getTransaction().add(query, params);
-	}
-
-	public void linkGroupFieldOfStudy(String groupExternalId, String fieldOfStudyExternalId) {
-		String query =
-				"MATCH (s:Structure { externalId : {externalId}})" +
-				"<-[:DEPENDS]-(c:FunctionalGroup { externalId : {groupExternalId}}), " +
-				"(f:FieldOfStudy { externalId : {fieldOfStudyExternalId}}) " +
-				"CREATE UNIQUE c-[:TEACHES]->f";
-		JsonObject params = new JsonObject()
-				.putString("externalId", externalId)
-				.putString("groupExternalId", groupExternalId)
-				.putString("fieldOfStudyExternalId", fieldOfStudyExternalId);
-		getTransaction().add(query, params);
-	}
-
 	public String getExternalId() {
 		return externalId;
 	}
