@@ -114,7 +114,7 @@ public class Directory extends BaseServer {
 		addController(importController);
 
 		TimetableController timetableController = new TimetableController();
-		timetableController.setTimetableService(new DefaultTimetableService());
+		timetableController.setTimetableService(new DefaultTimetableService(eb));
 		addController(timetableController);
 
 		vertx.eventBus().registerLocalHandler("user.repository",

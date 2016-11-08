@@ -21,6 +21,7 @@ package org.entcore.feeder.timetable;
 
 import fr.wseduc.mongodb.MongoDb;
 import fr.wseduc.webutils.DefaultAsyncResult;
+import org.entcore.feeder.dictionary.structures.Transition;
 import org.entcore.feeder.dictionary.users.PersEducNat;
 import org.entcore.feeder.exceptions.TransactionException;
 import org.entcore.feeder.exceptions.ValidationException;
@@ -30,6 +31,7 @@ import org.entcore.feeder.utils.TransactionManager;
 import org.joda.time.DateTime;
 import org.vertx.java.core.AsyncResultHandler;
 import org.vertx.java.core.Handler;
+import org.vertx.java.core.eventbus.EventBus;
 import org.vertx.java.core.eventbus.Message;
 import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
@@ -40,6 +42,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static fr.wseduc.webutils.Utils.isEmpty;
+import static fr.wseduc.webutils.Utils.isNotEmpty;
 
 public abstract class AbstractTimetableImporter implements TimetableImporter {
 
@@ -49,6 +52,12 @@ public abstract class AbstractTimetableImporter implements TimetableImporter {
 			"MERGE (sub:Subject {externalId : {externalId}}) " +
 			"ON CREATE SET sub.code = {Code}, sub.label = {Libelle}, sub.id = {id} " +
 			"MERGE (sub)-[:SUBJECT]->(s) ";
+	private static final String LINK_SUBJECT =
+			"MATCH (s:Subject {id : {subjectId}}), (u:User) " +
+			"WHERE u.id IN {teacherIds} " +
+			"MERGE u-[r:TEACHES]->s " +
+			"SET r.classes = FILTER(c IN coalesce(r.classes, []) where NOT(c IN r.classes)) + {classes}, " +
+			"r.groups = FILTER(g IN coalesce(r.groups, []) where NOT(g IN r.groups)) + {groups} ";
 	protected static final String UNKNOWN_CLASSES =
 			"MATCH (s:Structure {UAI : {UAI}})<-[:BELONGS]-(c:Class) " +
 			"WHERE c.name = {className} " +
@@ -98,7 +107,8 @@ public abstract class AbstractTimetableImporter implements TimetableImporter {
 
 	protected void init(final AsyncResultHandler<Void> handler) throws TransactionException {
 		importTimestamp = System.currentTimeMillis();
-		final String externalIdFromUAI = "MATCH (s:Structure {UAI : {UAI}}) return s.externalId as externalId, s.id as id";
+		final String externalIdFromUAI = "MATCH (s:Structure {UAI : {UAI}}) " +
+				"return s.externalId as externalId, s.id as id, s.timetable as timetable ";
 		final String tma = getTeacherMappingAttribute();
 		final String getUsersByProfile =
 				"MATCH (:Structure {UAI : {UAI}})<-[:DEPENDS]-(:ProfileGroup)<-[:IN]-(u:User) " +
@@ -136,6 +146,10 @@ public abstract class AbstractTimetableImporter implements TimetableImporter {
 							structureExternalId = a.<JsonObject>get(0).getString("externalId");
 							structure.add(structureExternalId);
 							structureId = a.<JsonObject>get(0).getString("id");
+							if (!getSource().equals(a.<JsonObject>get(0).getString("timetable"))) {
+								handler.handle(new DefaultAsyncResult<Void>(new TransactionException("different.timetable.type")));
+								return;
+							}
 						} else {
 							handler.handle(new DefaultAsyncResult<Void>(new ValidationException("invalid.uai")));
 							return;
@@ -180,6 +194,7 @@ public abstract class AbstractTimetableImporter implements TimetableImporter {
 
 	protected void persistCourse(JsonObject object) {
 		persEducNatToGroups(object);
+		persEducNatToSubjects(object);
 		// TODO add two phase commit
 		countMongoQueries.incrementAndGet();
 		JsonObject m = new JsonObject().putObject("$set", object)
@@ -198,20 +213,33 @@ public abstract class AbstractTimetableImporter implements TimetableImporter {
 				});
 	}
 
-	protected void persEducNatToGroups(JsonObject object) {
-		JsonArray groups = object.getArray("groups");
+	private void persEducNatToSubjects(JsonObject object) {
+		final String subjectId = object.getString("subjectId");
+		final JsonArray teacherIds = object.getArray("teacherIds");
+		if (isNotEmpty(subjectId) && teacherIds != null && teacherIds.size() > 0) {
+			final JsonObject params = new JsonObject()
+					.putString("subjectId", subjectId)
+					.putArray("teacherIds", teacherIds)
+					.putArray("classes", object.getArray("classes", new JsonArray()))
+					.putArray("groups", object.getArray("groups", new JsonArray()));
+			txXDT.add(LINK_SUBJECT, params);
+		}
+	}
+
+	private void persEducNatToGroups(JsonObject object) {
+		final JsonArray groups = object.getArray("groups");
 		if (groups != null) {
-			JsonArray teacherIds = object.getArray("teacherIds");
-			List<String> ids = new ArrayList<>();
+			final JsonArray teacherIds = object.getArray("teacherIds");
+			final List<String> ids = new ArrayList<>();
 			if (teacherIds != null) {
 				ids.addAll(teacherIds.toList());
 			}
-			JsonArray personnelIds = object.getArray("personnelIds");
+			final JsonArray personnelIds = object.getArray("personnelIds");
 			if (personnelIds != null) {
 				ids.addAll(personnelIds.toList());
 			}
 			if (!ids.isEmpty()) {
-				JsonArray g = new JsonArray();
+				final JsonArray g = new JsonArray();
 				for (Object o : groups) {
 					g.add(structureExternalId + "$" + o.toString());
 				}
@@ -292,6 +320,64 @@ public abstract class AbstractTimetableImporter implements TimetableImporter {
 				.putString(pl + "Ids.$", id)
 				.putNumber("modified", now));
 		MongoDb.getInstance().update(COURSES, query, modifier, false, true);
+	}
+
+	public static void initStructure(final EventBus eb, final Message<JsonObject> message) {
+		final JsonObject conf = message.body().getObject("conf");
+		if (conf == null) {
+			message.reply(new JsonObject().putString("status", "error").putString("message", "invalid.conf"));
+			return;
+		}
+		final String query =
+				"MATCH (s:Structure {id:{structureId}}) " +
+				"RETURN (NOT(HAS(s.timetable)) OR s.timetable <> {type}) as update ";
+//				"WHERE NOT(HAS(s.timetable)) OR s.timetable <> {type} " +
+//				"RETURN count(*) = 1 as update ";
+		TransactionManager.getNeo4jHelper().execute(query, conf, new Handler<Message<JsonObject>>() {
+			@Override
+			public void handle(final Message<JsonObject> event) {
+				final JsonArray j = event.body().getArray("result");
+				if ("ok".equals(event.body().getString("status")) && j != null && j.size() == 1 &&
+						j.<JsonObject>get(0).getBoolean("update", false)) {
+					try {
+						TransactionHelper tx = TransactionManager.getTransaction();
+						final String q1 =
+								"MATCH (s:Structure {id : {structureId}})<-[:DEPENDS]-(fg:FunctionalGroup) " +
+								"WHERE NOT(HAS(s.timetable)) OR s.timetable <> {type} " +
+								"OPTIONAL MATCH fg<-[:IN]-(u:User) " +
+								"RETURN fg.id as group, fg.name as groupName, collect(u.id) as users ";
+						final String q2 =
+								"MATCH (s:Structure {id: {structureId}}) " +
+								"WHERE NOT(HAS(s.timetable)) OR s.timetable <> {type} " +
+								"SET s.timetable = {type} " +
+								"WITH s " +
+								"MATCH s<-[:DEPENDS]-(fg:FunctionalGroup), s<-[:SUBJECT]-(sub:Subject) " +
+								"DETACH DELETE fg, sub ";
+						tx.add(q1, conf);
+						tx.add(q2, conf);
+						tx.commit(new Handler<Message<JsonObject>>() {
+							@Override
+							public void handle(Message<JsonObject> res) {
+								if ("ok".equals(res.body().getString("status"))) {
+									final JsonArray r = res.body().getArray("results");
+									if (r != null && r.size() == 2) {
+										Transition.publishDeleteGroups(eb, log, r.<JsonArray>get(0));
+									}
+									message.reply(event.body());
+								} else {
+									message.reply(res.body());
+								}
+							}
+						});
+					} catch (TransactionException e) {
+						log.error("Transaction error when init timetable structure", e);
+						message.reply(new JsonObject().putString("status", "error").putString("message", e.getMessage()));
+					}
+				} else {
+					message.reply(event.body());
+				}
+			}
+		});
 	}
 
 }

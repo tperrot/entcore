@@ -23,17 +23,26 @@ import fr.wseduc.mongodb.MongoDb;
 import fr.wseduc.webutils.Either;
 import fr.wseduc.webutils.Utils;
 import org.entcore.common.neo4j.Neo4j;
+import org.entcore.directory.Directory;
 import org.entcore.directory.services.TimetableService;
 import org.vertx.java.core.Handler;
+import org.vertx.java.core.eventbus.EventBus;
 import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
 
 import static org.entcore.common.mongodb.MongoDbResult.validResultsHandler;
+import static org.entcore.common.neo4j.Neo4jResult.validEmptyHandler;
 import static org.entcore.common.neo4j.Neo4jResult.validResultHandler;
+import static org.entcore.common.neo4j.Neo4jResult.validUniqueResultHandler;
 
 public class DefaultTimetableService implements TimetableService {
 
 	private static final String COURSES = "courses";
+	private final EventBus eb;
+
+	public DefaultTimetableService(EventBus eb) {
+		this.eb = eb;
+	}
 
 	@Override
 	public void listCourses(String structureId, long lastDate, Handler<Either<String, JsonArray>> handler) {
@@ -87,6 +96,13 @@ public class DefaultTimetableService implements TimetableService {
 			}
 		}
 		Neo4j.getInstance().execute(query.toString(), params, validResultHandler(handler));
+	}
+
+	@Override
+	public void initStructure(String structureId, JsonObject conf, Handler<Either<String, JsonObject>> handler) {
+		JsonObject action = new JsonObject().putString("action", "manual-init-timetable-structure")
+				.putObject("conf", conf.putString("structureId", structureId));
+		eb.send(Directory.FEEDER, action, validUniqueResultHandler(handler));
 	}
 
 }

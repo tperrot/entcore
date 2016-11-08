@@ -33,6 +33,7 @@ import org.entcore.feeder.be1d.Be1dValidator;
 import org.entcore.feeder.csv.CsvFeeder;
 import org.entcore.feeder.csv.CsvValidator;
 import org.entcore.feeder.dictionary.structures.*;
+import org.entcore.feeder.timetable.AbstractTimetableImporter;
 import org.entcore.feeder.timetable.edt.EDTImporter;
 import org.entcore.feeder.timetable.edt.EDTUtils;
 import org.entcore.feeder.export.Exporter;
@@ -44,9 +45,11 @@ import org.vertx.java.core.AsyncResult;
 import org.vertx.java.core.AsyncResultHandler;
 import org.vertx.java.core.Handler;
 import org.vertx.java.core.VoidHandler;
+import org.vertx.java.core.eventbus.EventBus;
 import org.vertx.java.core.eventbus.Message;
 import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
+import org.vertx.java.core.logging.Logger;
 
 import java.text.ParseException;
 import java.util.HashMap;
@@ -253,6 +256,9 @@ public class Feeder extends BusModBase implements Handler<Message<JsonObject>> {
 					}
 				});
 				break;
+			case "manual-init-timetable-structure" :
+				AbstractTimetableImporter.initStructure(eb, message);
+				break;
 			case "edt":
 				try {
 					new EDTImporter(new EDTUtils(vertx, "/home/dboissin/Docs/EDT - UDT/pronote.pk8", "NEO-Open"), "1234567H", "fr").launch(new AsyncResultHandler<Report>() {
@@ -402,10 +408,7 @@ public class Feeder extends BusModBase implements Handler<Message<JsonObject>> {
 				@Override
 				public void handle(Message<JsonObject> m) {
 					if (m != null && "ok".equals(m.body().getString("status"))) {
-						logger.info("Delete groups : " + m.body().encode());
-						eb.publish(USER_REPOSITORY, new JsonObject()
-								.putString("action", "delete-groups")
-								.putArray("old-groups", m.body().getArray("result", new JsonArray())));
+						Transition.publishDeleteGroups(eb, logger, m.body().getArray("result", new JsonArray()));
 						if (handler != null) {
 							handler.handle(m);
 						} else {

@@ -80,6 +80,10 @@ public class UDTImporter extends AbstractTimetableImporter {
 		init(new AsyncResultHandler<Void>() {
 			@Override
 			public void handle(AsyncResult<Void> event) {
+				if (event.failed()) {
+					handler.handle(new DefaultAsyncResult<Report>(event.cause()));
+					return;
+				}
 				try {
 					final String basePath = "/home/dboissin/Docs/EDT - UDT/UDT20160908/";
 					parse(basePath + "UDCal_24.xml");

@@ -159,7 +159,9 @@ public class PersEducNat extends AbstractUser {
 							if (isNotEmpty(structClass[2])) {
 								String q2 =
 										"MATCH (u:User {externalId : {userExternalId}}), (f:FieldOfStudy {externalId:{feId}}) " +
-										"MERGE u-[:TEACHES]->f "
+										"MERGE u-[r:TEACHES_FOS]->f " +
+										"SET r.classes = coalesce(FILTER(cId IN r.classes WHERE cId <> {class}), []) + {class} ";
+								transactionHelper.add(q2, p.copy().putString("feId", structClass[2]));
 							}
 						}
 					}
@@ -172,6 +174,7 @@ public class PersEducNat extends AbstractUser {
 							.putString("source", currentSource)
 							.putArray("classes", classes);
 					transactionHelper.add(q, p);
+					// TODO remove TEACHES
 				}
 				final JsonArray groups = new JsonArray();
 				if (externalId != null && linkGroups != null) {
@@ -191,6 +194,13 @@ public class PersEducNat extends AbstractUser {
 									.putString("group", structGroup[1]);
 							transactionHelper.add(query, p);
 							groups.add(structGroup[1]);
+							if (isNotEmpty(structGroup[2])) {
+								String q2 =
+										"MATCH (u:User {externalId : {userExternalId}}), (f:FieldOfStudy {externalId:{feId}}) " +
+										"MERGE u-[r:TEACHES_FOS]->f " +
+										"SET r.groups = coalesce(FILTER(cId IN r.groups WHERE cId <> {group}), []) + {group} ";
+								transactionHelper.add(q2, p.copy().putString("feId", structGroup[2]));
+							}
 						}
 					}
 				}
@@ -204,9 +214,25 @@ public class PersEducNat extends AbstractUser {
 							.putString("source", currentSource)
 							.putArray("groups", groups);
 					transactionHelper.add(qdfg, pdfg);
+					// TODO remove TEACHES
 				}
 			}
 		}
+	}
+
+	public void createAndLinkSubjects() {
+		String query =
+				"MATCH (f:FieldOfStudy)<-[r:TEACHES_FOS]-(u:User)-[:IN]->(:ProfileGroup)-[:DEPENDS]->(s:Structure) " +
+				"WHERE NOT(HAS(s.timetable)) " +
+				"MERGE s<-[:SUBJECT]-(sub:Subject {externalId: s.externalId + '$' + f.externalId}) " +
+				"ON CREATE SET sub.code = f.externalId, sub.label = f.name, sub.id = id(sub) + '-' + timestamp() " +
+				"WITH r, sub, u, s.externalId as sExternalId " +
+				"MERGE u-[r1:TEACHES]->sub " +
+				"SET r1.classes = FILTER(cId IN coalesce(r.classes, []) WHERE cId starts with sExternalId), " +
+				"r1.groups = FILTER(gId IN coalesce(r.groups, []) WHERE gId starts with sExternalId) ";
+		transactionHelper.add(query, new JsonObject());
+
+		// TODO add remove
 	}
 
 }

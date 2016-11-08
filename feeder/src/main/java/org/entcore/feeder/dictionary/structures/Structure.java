@@ -168,6 +168,7 @@ public class Structure {
 		if (functionalGroups.add(groupExternalId)) {
 			String query =
 					"MATCH (s:Structure { externalId : {structureExternalId}}) " +
+					"WHERE NOT(HAS(s.timetable)) " +
 					"CREATE s<-[:DEPENDS]-(c:Group:FunctionalGroup {props}) ";
 			JsonObject params = new JsonObject()
 					.putString("structureExternalId", externalId)

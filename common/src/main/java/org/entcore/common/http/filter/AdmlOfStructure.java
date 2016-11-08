@@ -17,20 +17,27 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-package org.entcore.directory.services;
+package org.entcore.common.http.filter;
 
-import fr.wseduc.webutils.Either;
+import fr.wseduc.webutils.http.Binding;
+import org.entcore.common.user.UserInfos;
 import org.vertx.java.core.Handler;
-import org.vertx.java.core.json.JsonArray;
-import org.vertx.java.core.json.JsonObject;
+import org.vertx.java.core.http.HttpServerRequest;
 
-public interface TimetableService {
 
-	void listCourses(String structureId, long lastDate, Handler<Either<String,JsonArray>> handler);
+import static fr.wseduc.webutils.Utils.isEmpty;
 
-	void listSubjects(String structureId, boolean teachers, boolean classes, boolean groups,
-			Handler<Either<String, JsonArray>> handler);
+public class AdmlOfStructure extends AdmlResourcesProvider {
 
-	void initStructure(String structureId, JsonObject conf, Handler<Either<String,JsonObject>> handler);
+	@Override
+	public void authorizeAdml(HttpServerRequest resourceRequest, Binding binding,
+			UserInfos user, UserInfos.Function adminLocal, Handler<Boolean> handler) {
+		String structure = resourceRequest.params().get("structureId");
+		if (isEmpty(structure) || !adminLocal.getScope().contains(structure)) {
+			handler.handle(false);
+			return;
+		}
+		handler.handle(true);
+	}
 
 }

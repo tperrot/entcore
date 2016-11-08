@@ -20,17 +20,23 @@
 package org.entcore.directory.controllers;
 
 import fr.wseduc.rs.Get;
+import fr.wseduc.rs.Put;
 import fr.wseduc.security.ActionType;
 import fr.wseduc.security.SecuredAction;
 import fr.wseduc.webutils.http.BaseController;
+import fr.wseduc.webutils.request.RequestUtils;
+import org.entcore.common.http.filter.AdmlOfStructure;
 import org.entcore.common.http.filter.ResourceFilter;
 import org.entcore.common.http.filter.SuperAdminFilter;
 import org.entcore.directory.services.TimetableService;
 import org.joda.time.DateTime;
+import org.vertx.java.core.Handler;
 import org.vertx.java.core.http.HttpServerRequest;
+import org.vertx.java.core.json.JsonObject;
 
 import static fr.wseduc.webutils.Utils.getOrElse;
 import static org.entcore.common.http.response.DefaultResponseHandler.arrayResponseHandler;
+import static org.entcore.common.http.response.DefaultResponseHandler.defaultResponseHandler;
 
 public class TimetableController extends BaseController {
 
@@ -64,6 +70,18 @@ public class TimetableController extends BaseController {
 		final boolean classes = request.params().contains("classes");
 		final boolean groups = request.params().contains("groups");
 		timetableService.listSubjects(structureId, teachers, classes, groups, arrayResponseHandler(request));
+	}
+
+	@Put("/timetable/init/:structureId")
+	@SecuredAction(value = "", type = ActionType.RESOURCE)
+	@ResourceFilter(AdmlOfStructure.class)
+	public void initStructure(final HttpServerRequest request) {
+		RequestUtils.bodyToJson(request, pathPrefix + "initTimetable", new Handler<JsonObject>() {
+			@Override
+			public void handle(JsonObject conf) {
+				timetableService.initStructure(request.params().get("structureId"), conf, defaultResponseHandler(request));
+			}
+		});
 	}
 
 	public void setTimetableService(TimetableService timetableService) {
