@@ -36,7 +36,7 @@ import org.vertx.java.core.json.JsonObject;
 
 import static fr.wseduc.webutils.Utils.getOrElse;
 import static org.entcore.common.http.response.DefaultResponseHandler.arrayResponseHandler;
-import static org.entcore.common.http.response.DefaultResponseHandler.defaultResponseHandler;
+import static org.entcore.common.http.response.DefaultResponseHandler.notEmptyResponseHandler;
 
 public class TimetableController extends BaseController {
 
@@ -79,7 +79,7 @@ public class TimetableController extends BaseController {
 		RequestUtils.bodyToJson(request, pathPrefix + "initTimetable", new Handler<JsonObject>() {
 			@Override
 			public void handle(JsonObject conf) {
-				timetableService.initStructure(request.params().get("structureId"), conf, defaultResponseHandler(request));
+				timetableService.initStructure(request.params().get("structureId"), conf, notEmptyResponseHandler(request));
 			}
 		});
 	}

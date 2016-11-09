@@ -118,6 +118,7 @@ public class Importer {
 				@Override
 				public void handle(Message<JsonObject> message) {
 					transactionHelper = new TransactionHelper(neo4j, 1000);
+					persEducNat.setTransactionHelper(transactionHelper);
 					if (handler != null) {
 						handler.handle(message);
 					}
@@ -827,6 +828,10 @@ public class Importer {
 
 	public ConcurrentHashMap<String, List<String>> getGroupClasses() {
 		return groupClasses;
+	}
+
+	public PersEducNat getPersEducNat() {
+		return persEducNat;
 	}
 
 }
